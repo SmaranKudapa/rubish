@@ -28,7 +28,7 @@
           <button id="go" class="go" type="submit" aria-label="Next">&gt;</button>
         </form>
         <div id="swatches" class="swatches" role="radiogroup" aria-label="Letter color"></div>
-        <button id="finish" class="link" type="button">I'm done</button>
+        <div id="swatches-bg" class="swatches" role="radiogroup" aria-label="Background color"></div>
       </section>
 
       <!-- Step player: only the next-step button -->
@@ -38,7 +38,9 @@
     </div>
   </main>
 
-  <canvas id="physics" class="physics" aria-hidden="true"></canvas>
+  <!-- Physics pieces behind the main cube (negative depth) and in front of it -->
+  <canvas id="physics-back" class="physics back" aria-hidden="true"></canvas>
+  <canvas id="physics-front" class="physics front" aria-hidden="true"></canvas>
 
   <script type="module" src="/src/main.js"></script>
 </body>

@@ -21,10 +21,10 @@ const sleep = async (ms, alive = () => true) => {
 
 const cube = new RubiksCube();
 const stage = createStage($('cube'), cube);
-const physics = createPhysics($('physics'));
+const physics = createPhysics({ back: $('physics-back'), front: $('physics-front'), obstacle: stage.obstacle });
 buildTitle($('title'), data, {
-  onExplode: (x, y, size) => {
-    physics.explode(x, y, size);
+  onExplode: (x, y, size, rx, ry) => {
+    physics.explode(x, y, size, rx, ry);
     boom(x, y);
   },
 });
@@ -35,38 +35,53 @@ const steps = $('steps');
 const nextBtn = $('next');
 
 // landing → intro → steps → celebrate → (intro → steps → celebrate)* → finale → done
-// done → (new word) intro ... ; "I'm done" / Esc → landing
+// "done" is the landing page showing off the finished word; a new word starts over.
 let mode = 'landing';
-let color = 'red';
-let word = null; // { chars, idx, color }
-let job = null; // { ch, entry, hold, step }
+let color = 'red'; // letter color
+let bgColor = 'white'; // background color
+let word = null; // { chars, idx, color, bg }
+let job = null; // { ch, hold, moves, step }
 let loopToken = 0;
 let loopPromise = Promise.resolve();
 
-// ---------- Color swatches ----------
-for (const c of COLOR_ORDER) {
-  const b = document.createElement('button');
-  b.type = 'button';
-  b.className = 'swatch';
-  b.style.setProperty('--c', PALETTE[c]);
-  b.setAttribute('role', 'radio');
-  b.setAttribute('aria-label', c);
-  b.dataset.color = c;
-  b.onclick = () => setColor(c);
-  $('swatches').appendChild(b);
-}
-function setColor(c) {
-  color = c;
-  document.documentElement.style.setProperty('--accent', PALETTE[c]);
-  document.documentElement.style.setProperty('--accent-ink', c === 'white' || c === 'yellow' ? '#111' : '#fff');
-  for (const b of $('swatches').children) {
-    const on = b.dataset.color === c;
-    b.classList.toggle('on', on);
-    b.setAttribute('aria-checked', on);
+// ---------- Color swatches: letter color, then background color ----------
+function swatchRow(el, onPick) {
+  for (const c of COLOR_ORDER) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'swatch';
+    b.style.setProperty('--c', PALETTE[c]);
+    b.setAttribute('role', 'radio');
+    b.setAttribute('aria-label', c);
+    b.dataset.color = c;
+    b.onclick = () => onPick(c);
+    el.appendChild(b);
   }
-  if (mode === 'landing') restartLoop();
 }
-setColor(color);
+swatchRow($('swatches'), (c) => setColors(c, c === bgColor ? color : bgColor));
+swatchRow($('swatches-bg'), (c) => { if (c !== color) setColors(color, c); });
+
+function setColors(letter, bg) {
+  const changed = letter !== color || bg !== bgColor;
+  color = letter;
+  bgColor = bg;
+  const root = document.documentElement.style;
+  root.setProperty('--accent', PALETTE[letter]);
+  root.setProperty('--accent-ink', letter === 'white' || letter === 'yellow' ? '#111' : '#fff');
+  root.setProperty('--letter', PALETTE[letter]);
+  root.setProperty('--letter-bg', PALETTE[bg]);
+  for (const [row, pick] of [[$('swatches'), letter], [$('swatches-bg'), bg]]) {
+    for (const b of row.children) {
+      const on = b.dataset.color === pick;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-checked', on);
+    }
+  }
+  // The background can't match the letter.
+  for (const b of $('swatches-bg').children) b.disabled = b.dataset.color === letter;
+  if (changed && mode === 'landing') restartLoop();
+}
+setColors(color, bgColor);
 
 // ---------- Landing: shuffle to a random letter every 3 seconds ----------
 async function landingLoop(token) {
@@ -79,9 +94,9 @@ async function landingLoop(token) {
     last = ch;
     caption('');
     if (!(await cube.solve(speed(34), linear, alive))) return;
-    const hold = holdFor(data[ch], color);
+    const hold = holdFor(data[ch], color, bgColor);
     if (!(await cube.reorient(hold.front, hold.top, speed(140), easeInOutCubic, alive))) return;
-    for (const m of data[ch].moves) {
+    for (const m of hold.moves) {
       if (!alive()) return;
       await cube.turn(m, speed(34), linear);
     }
@@ -165,7 +180,7 @@ async function start() {
   document.body.classList.add('focus');
   caption('');
   slideOut(entry);
-  word = { chars: [...text], idx: 0, color };
+  word = { chars: [...text], idx: 0, color, bg: bgColor };
 
   await loopPromise;
   if (stage.hasWord()) {
@@ -176,7 +191,8 @@ async function start() {
   beginLetter();
 }
 
-// Scramble hard while shaking, then solve back to a clean cube.
+// Scramble hard while shaking, then solve back to a clean cube, still shaking
+// until it's fully solved.
 async function scrambleAndSolve(alive) {
   if (REDUCED) return cube.solve(0);
   stage.setShake(1, 900);
@@ -189,14 +205,16 @@ async function scrambleAndSolve(alive) {
     last = f;
     await cube.turn(f + ['', "'", '2'][Math.floor(Math.random() * 3)], 80, linear);
   }
-  stage.setShake(0, 700);
-  return cube.solve(55, easeInOutCubic, alive);
+  const solved = await cube.solve(55, easeInOutCubic, alive);
+  stage.setShake(0, solved ? 500 : 300);
+  return solved;
 }
 
 async function beginLetter() {
   mode = 'intro';
   const ch = word.chars[word.idx];
-  const myJob = { ch, entry: data[ch], hold: holdFor(data[ch], word.color), step: 0 };
+  const hold = holdFor(data[ch], word.color, word.bg);
+  const myJob = { ch, hold, moves: hold.moves, step: 0 };
   job = myJob;
   const alive = () => mode === 'intro' && job === myJob;
   nextBtn.disabled = true;
@@ -204,7 +222,7 @@ async function beginLetter() {
   flash(ch);
 
   if (!(await scrambleAndSolve(alive))) return;
-  if (!(await cube.reorient(myJob.hold.front, myJob.hold.top, speed(420), easeInOutCubic, alive))) return;
+  if (!(await cube.reorient(hold.front, hold.top, speed(420), easeInOutCubic, alive))) return;
   if (!alive()) return;
   flash('');
   stage.pop();
@@ -223,19 +241,19 @@ function press() {
 }
 
 async function next() {
-  if (mode !== 'steps' || job.step + queued >= job.entry.moves.length) return;
+  if (mode !== 'steps' || job.step + queued >= job.moves.length) return;
   press();
   queued++;
   if (running) return; // the loop below will pick it up
   running = true;
   while (queued > 0) {
     queued--;
-    const m = job.entry.moves[job.step];
+    const m = job.moves[job.step];
     job.step++;
     const rushed = queued > 0;
     await cube.turn(m, speed(rushed ? 170 : 460), rushed ? easeInOutCubic : easeOutBack);
     if (mode !== 'steps') break;
-    if (job.step === job.entry.moves.length) {
+    if (job.step === job.moves.length) {
       queued = 0;
       running = false;
       return celebrate();
@@ -247,12 +265,11 @@ async function next() {
 async function back() {
   if (mode !== 'steps' || running || job.step === 0) return;
   job.step--;
-  await cube.turn(invertMove(job.entry.moves[job.step]), speed(380), easeInOutCubic);
+  await cube.turn(invertMove(job.moves[job.step]), speed(380), easeInOutCubic);
 }
 
-function cubeCenter() {
-  const r = $('cube').getBoundingClientRect();
-  return [r.left + r.width / 2, r.top + r.height / 2, r];
+function stageRect() {
+  return $('cube').getBoundingClientRect();
 }
 
 // ---------- Celebration, then the next letter (or the finale) ----------
@@ -260,8 +277,8 @@ async function celebrate() {
   mode = 'celebrate';
   nextBtn.disabled = true;
   show(steps, false);
-  const [x, y] = cubeCenter();
-  if (!REDUCED) physics.confetti(x, y, 80);
+  const r = stageRect();
+  if (!REDUCED) physics.confetti(r.left + r.width / 2, r.top + r.height / 2, 80);
   await stage.celebrate();
   if (mode !== 'celebrate') return;
   word.idx++;
@@ -269,31 +286,35 @@ async function celebrate() {
   return finale();
 }
 
+// The main cube slides into place as the last letter, the earlier letters drop
+// in beside it, and the page turns back into the landing page showing the word.
 async function finale() {
   mode = 'finale';
   document.body.classList.add('finale');
-  const cubes = [];
-  for (const ch of word.chars) {
+  const earlier = [];
+  for (const ch of word.chars.slice(0, -1)) {
     const c = new RubiksCube();
-    const hold = holdFor(data[ch], word.color);
+    const hold = holdFor(data[ch], word.color, word.bg);
     await c.reorient(hold.front, hold.top);
-    for (const m of data[ch].moves) await c.turn(m);
-    cubes.push(c);
+    for (const m of hold.moves) await c.turn(m);
+    earlier.push(c);
   }
-  await stage.showWord(cubes);
+  await stage.showWord(earlier);
   if (mode !== 'finale') return;
   if (!REDUCED) {
-    const [, , r] = cubeCenter();
+    const r = stageRect();
     for (const f of [0.2, 0.5, 0.8]) physics.confetti(r.left + r.width * f, r.top + r.height * 0.4, 45, f === 0.5);
   }
   mode = 'done';
+  document.body.classList.remove('focus');
   input.value = '';
   slideIn(entry);
   input.focus({ preventScroll: true });
 }
 
-async function goHome() {
-  if (mode === 'landing') return;
+// Esc during a word: back to the plain landing page.
+function goHome() {
+  if (mode === 'landing' || mode === 'done' || mode === 'finale') return;
   mode = 'landing';
   queued = 0;
   job = null;
@@ -305,11 +326,7 @@ async function goHome() {
   stage.setSway(1);
   input.value = '';
   slideIn(entry);
-  if (stage.hasWord()) {
-    document.body.classList.remove('finale');
-    await stage.clearWord();
-  }
-  if (mode === 'landing') restartLoop();
+  restartLoop();
 }
 
 // ---------- Input wiring ----------
@@ -321,7 +338,6 @@ $('form').addEventListener('submit', (e) => {
   start();
 });
 nextBtn.addEventListener('click', (e) => { e.currentTarget.blur(); next(); });
-$('finish').addEventListener('click', (e) => { e.currentTarget.blur(); goHome(); });
 
 document.addEventListener('keydown', (e) => {
   if (e.target.closest?.('button') && (e.key === ' ' || e.key === 'Enter')) return;
