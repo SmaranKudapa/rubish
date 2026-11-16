@@ -21,7 +21,7 @@ const sleep = async (ms, alive = () => true) => {
 
 const cube = new RubiksCube();
 const stage = createStage($('cube'), cube);
-const physics = createPhysics({ back: $('physics-back'), front: $('physics-front'), obstacle: stage.obstacle });
+const physics = createPhysics({ back: $('physics-back'), front: $('physics-front'), obstacles: stage.obstacles });
 buildTitle($('title'), data, {
   onExplode: (x, y, size, rx, ry) => {
     physics.explode(x, y, size, rx, ry);
@@ -228,6 +228,7 @@ async function beginLetter() {
   stage.pop();
   mode = 'steps';
   nextBtn.disabled = false;
+  if (myJob.finish) finishLetter();
 }
 
 // ---------- Step player ----------
@@ -240,18 +241,32 @@ function press() {
   nextBtn.classList.add('pressed');
 }
 
-async function next() {
+function next() {
   if (mode !== 'steps' || job.step + queued >= job.moves.length) return;
   press();
   queued++;
-  if (running) return; // the loop below will pick it up
+  if (!running) runQueue();
+}
+
+// Enter (not shown anywhere in the UI): play every remaining move quickly.
+function finishLetter() {
+  if (!job) return;
+  if (mode === 'intro') { job.finish = true; return; } // do it as soon as it's ready
+  if (mode !== 'steps') return;
+  job.rush = true;
+  queued = job.moves.length - job.step;
+  if (!running) runQueue();
+}
+
+async function runQueue() {
   running = true;
   while (queued > 0) {
     queued--;
     const m = job.moves[job.step];
     job.step++;
     const rushed = queued > 0;
-    await cube.turn(m, speed(rushed ? 170 : 460), rushed ? easeInOutCubic : easeOutBack);
+    const ms = job.rush ? 95 : rushed ? 170 : 460;
+    await cube.turn(m, speed(ms), job.rush ? linear : rushed ? easeInOutCubic : easeOutBack);
     if (mode !== 'steps') break;
     if (job.step === job.moves.length) {
       queued = 0;
@@ -268,17 +283,14 @@ async function back() {
   await cube.turn(invertMove(job.moves[job.step]), speed(380), easeInOutCubic);
 }
 
-function stageRect() {
-  return $('cube').getBoundingClientRect();
-}
-
 // ---------- Celebration, then the next letter (or the finale) ----------
 async function celebrate() {
   mode = 'celebrate';
   nextBtn.disabled = true;
   show(steps, false);
-  const r = stageRect();
-  if (!REDUCED) physics.confetti(r.left + r.width / 2, r.top + r.height / 2, 80);
+  // The last letter saves its confetti for the start page with the word on it.
+  const last = word.idx === word.chars.length - 1;
+  if (!REDUCED && !last) physics.confetti(110);
   await stage.celebrate();
   if (mode !== 'celebrate') return;
   word.idx++;
@@ -301,15 +313,13 @@ async function finale() {
   }
   await stage.showWord(earlier);
   if (mode !== 'finale') return;
-  if (!REDUCED) {
-    const r = stageRect();
-    for (const f of [0.2, 0.5, 0.8]) physics.confetti(r.left + r.width * f, r.top + r.height * 0.4, 45, f === 0.5);
-  }
   mode = 'done';
   document.body.classList.remove('focus');
   input.value = '';
   slideIn(entry);
   input.focus({ preventScroll: true });
+  // The one big celebration, once the word is showing on the start page.
+  if (!REDUCED) setTimeout(() => physics.confetti(170), 350);
 }
 
 // Esc during a word: back to the plain landing page.
@@ -344,6 +354,7 @@ document.addEventListener('keydown', (e) => {
   if (mode === 'steps' || mode === 'intro' || mode === 'celebrate') {
     if (e.code === 'Space' || e.key === 'ArrowRight') { e.preventDefault(); next(); }
     else if (e.key === 'ArrowLeft') { e.preventDefault(); back(); }
+    else if (e.key === 'Enter') { e.preventDefault(); finishLetter(); }
     else if (e.key === 'Escape') goHome();
     return;
   }
