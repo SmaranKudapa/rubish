@@ -8,19 +8,13 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@700;800&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
 </head>
 <body>
-  <div class="bg" aria-hidden="true"><span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span><div class="grid"></div></div>
-
-  <button id="home" class="home" type="button" aria-label="Back to start">← Start over</button>
-
-  <header id="title" class="title"></header>
-
   <main class="app">
+    <header id="title" class="title"></header>
+
     <div class="stage">
-      <div class="glow" aria-hidden="true"></div>
-      <div class="ring" id="ring" aria-hidden="true"></div>
       <div id="cube" class="cube"></div>
       <div id="caption" class="caption" aria-live="polite"></div>
     </div>
@@ -28,40 +22,22 @@
     <div class="panel">
       <!-- Character entry: landing page, and again after each letter -->
       <section id="entry" class="entry slide">
-        <p id="entry-label" class="entry-label">Make another one</p>
         <form id="form" class="entry-row" autocomplete="off">
           <input id="char" class="char" maxlength="1" inputmode="text" autocapitalize="characters" spellcheck="false" placeholder="A" aria-label="Character, A to Z or 0 to 9" autofocus />
           <button id="go" class="go" type="submit" aria-label="Next">&gt;</button>
         </form>
         <div id="swatches" class="swatches" role="radiogroup" aria-label="Letter color"></div>
-        <p class="entry-hint">Type a letter A–Z or digit 0–9, pick its color</p>
         <button id="finish" class="link" type="button">I'm done</button>
       </section>
 
-      <!-- Step-by-step player -->
+      <!-- Step player: only the next-step button -->
       <section id="steps" class="steps" hidden>
-        <p id="hold" class="hold"></p>
-        <div class="step-main">
-          <div class="goal"><div id="goal" class="goal-face"></div><span>goal</span></div>
-          <div class="card">
-            <div id="move" class="move"></div>
-            <div id="move-desc" class="move-desc"></div>
-          </div>
-        </div>
-        <div id="chips" class="chips"></div>
-        <div class="step-controls">
-          <button id="back" class="ctl" type="button" aria-label="Previous step">‹</button>
-          <button id="next" class="ctl primary" type="button"><kbd>space</kbd><span>next step</span></button>
-          <span id="count" class="count"></span>
-        </div>
-      </section>
-
-      <section id="done" class="done" hidden>
-        <p class="done-title"><span id="done-char"></span> complete!</p>
-        <p id="done-sub" class="done-sub"></p>
+        <button id="next" class="next" type="button"><kbd>space</kbd><span>next step</span></button>
       </section>
     </div>
   </main>
+
+  <canvas id="confetti" class="confetti" aria-hidden="true"></canvas>
 
   <script type="module" src="/src/main.js"></script>
 </body>
