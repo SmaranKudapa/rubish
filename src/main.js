@@ -51,8 +51,8 @@ function obstacles() {
   return list;
 }
 const physics = createPhysics({ back: $('physics-back'), front: $('physics-front'), obstacles, sound: sfx });
-const backdrop = createBackdrop($('backdrop'), physics);
-if (import.meta.env.DEV) window.__rubish = { physics, backdrop }; // handy for poking at it in dev
+createBackdrop($('backdrop'), physics);
+if (import.meta.env.DEV) window.__rubish = { physics }; // handy for poking at it in dev
 const title = buildTitle($('title'), data, {
   onExplode: (x, y, size, rx, ry) => {
     physics.explode(x, y, size, rx, ry);
@@ -360,8 +360,6 @@ async function celebrate() {
   // The last letter saves its confetti for the start page with the word on it.
   const last = word.idx === word.chars.length - 1;
   if (!REDUCED && !last) physics.confetti(110);
-  const sr = $('cube').getBoundingClientRect();
-  backdrop.ripple(sr.left + sr.width / 2, sr.top + sr.height / 2, PALETTE[job.hold.letter]);
   if (!last) sfx.celebrate();
   await stage.celebrate();
   if (mode !== 'celebrate') return;
@@ -396,8 +394,6 @@ async function finale() {
   // The one big celebration, once the word is showing on the start page.
   if (!REDUCED) setTimeout(() => physics.confetti(170), 350);
   sfx.fanfare();
-  const wr = $('cube').getBoundingClientRect();
-  backdrop.ripple(wr.left + wr.width / 2, wr.top + wr.height / 2, PALETTE[word.color], true);
 }
 
 // Esc during a word: back to the plain landing page.

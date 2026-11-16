@@ -1,11 +1,6 @@
-// Background layer behind the whole page (2D canvas, pixel style):
-//  - a floor: a pixel horizon line and a slightly darker ground band where the
-//    confetti lands, with faint reflections of the pieces resting on it
-//  - celebration ripples: rings of square pixels that spread out across the
-//    screen from behind the cube
-
-const CELL = 16; // ripple pixel size
-const easeOut = (t) => 1 - Math.pow(1 - t, 2);
+// Background layer behind the whole page (2D canvas, pixel style): a floor
+// with a pixel horizon line and a slightly darker ground band where the
+// confetti lands, plus faint reflections of the pieces resting on it.
 
 export function createBackdrop(canvas, physics) {
   const ctx = canvas.getContext('2d');
@@ -19,8 +14,6 @@ export function createBackdrop(canvas, physics) {
   };
   window.addEventListener('resize', resize);
   resize();
-
-  const ripples = [];
 
   function floor() {
     const top = Math.round(physics.floorY(-1)) - 4; // just behind the farthest resting pieces
@@ -63,50 +56,11 @@ export function createBackdrop(canvas, physics) {
     ctx.globalAlpha = 1;
   }
 
-  function drawRipples(now) {
-    for (let i = ripples.length - 1; i >= 0; i--) {
-      const r = ripples[i];
-      const k = (now - r.t0) / r.dur;
-      if (k >= 1) { ripples.splice(i, 1); continue; }
-      if (k < 0) continue;
-      const R = easeOut(k) * r.max;
-      const alpha = Math.pow(1 - k, 1.1) * r.alpha;
-      ctx.fillStyle = r.color;
-      ctx.globalAlpha = alpha;
-      // Two cells thick, snapped to a pixel grid so it reads as chunky blocks.
-      for (const rr of [R, R - CELL]) {
-        if (rr <= 0) continue;
-        const steps = Math.max(12, Math.ceil((2 * Math.PI * rr) / CELL));
-        for (let s = 0; s < steps; s++) {
-          const a = (s / steps) * Math.PI * 2;
-          const x = Math.round((r.x + Math.cos(a) * rr) / CELL) * CELL;
-          const y = Math.round((r.y + Math.sin(a) * rr) / CELL) * CELL;
-          ctx.fillRect(x - CELL / 2 + 2, y - CELL / 2 + 2, CELL - 4, CELL - 4);
-        }
-      }
-    }
-    ctx.globalAlpha = 1;
-  }
-
-  function frame(now) {
+  function frame() {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
-    drawRipples(now);
     reflections(floor());
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
-
-  return {
-    // A burst of pixel rings from (x, y): a white one, then one in `color`.
-    ripple(x, y, color = '#ffffff', big = false) {
-      const now = performance.now();
-      const max = Math.hypot(W, H);
-      const rings = big ? 3 : 1;
-      for (let i = 0; i < rings; i++) {
-        ripples.push({ x, y, t0: now + i * 320, dur: 2300, max, color: '#ffffff', alpha: 0.6 });
-        ripples.push({ x, y, t0: now + i * 320 + 160, dur: 2300, max, color, alpha: 0.55 });
-      }
-    },
-  };
 }
