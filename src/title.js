@@ -46,29 +46,35 @@ function face(cls, colors) {
   return f;
 }
 
+// One little letter cube (plus its plain-text letter, shown while it's still
+// text). Uses the same classes as the title, so the same CSS states apply.
+export function buildCube(data, [ch, fg, bg], idx) {
+  const glyph = data[ch].glyph.join('').split('');
+  const home = glyph.map((c) => PALETTE[c === '#' ? fg : bg]);
+  const mini = document.createElement('div'); // floats up and down
+  mini.className = 'mini';
+  mini.style.setProperty('--i', idx);
+  const letter = document.createElement('span'); // plain-text letter
+  letter.className = 'mini-letter';
+  letter.textContent = ch;
+  const shaker = document.createElement('div'); // shake / drop-in transforms
+  shaker.className = 'mini-shake';
+  const inner = document.createElement('div'); // the 3D cube
+  inner.className = 'mini-inner';
+  inner.appendChild(face('f-front', home));
+  for (const side of SIDES) inner.appendChild(face(side, Array(9).fill(PALETTE[bg])));
+  shaker.appendChild(inner);
+  mini.append(letter, shaker);
+  return { mini, shaker, inner };
+}
+
 // sound: optional { blip, tick, thud, whoosh } effects.
 export function buildTitle(el, data, { onExplode, sound = {} }) {
   el.setAttribute('aria-label', 'RUBISH');
   let opening = false; // clicks are ignored while the opening plays
 
-  function makeMini([ch, fg, bg], idx, extra = false) {
-    const glyph = data[ch].glyph.join('').split('');
-    const home = glyph.map((c) => PALETTE[c === '#' ? fg : bg]);
-
-    const mini = document.createElement('div'); // floats up and down
-    mini.className = 'mini';
-    mini.style.setProperty('--i', idx);
-    const letter = document.createElement('span'); // plain-text letter (opening)
-    letter.className = 'mini-letter';
-    letter.textContent = ch;
-    const shaker = document.createElement('div'); // shake / drop-in transforms
-    shaker.className = 'mini-shake';
-    const inner = document.createElement('div'); // the 3D cube
-    inner.className = 'mini-inner';
-    inner.appendChild(face('f-front', home));
-    for (const side of SIDES) inner.appendChild(face(side, Array(9).fill(PALETTE[bg])));
-    shaker.appendChild(inner);
-    mini.append(letter, shaker);
+  function makeMini(look, idx, extra = false) {
+    const { mini, shaker, inner } = buildCube(data, look, idx);
 
     const stickers = [...inner.querySelectorAll('i')];
     const rec = { mini, shaker, inner, stickers, homeColors: stickers.map((s) => s.style.getPropertyValue('--c')), busy: false, extra };
