@@ -49,6 +49,7 @@ button { font: inherit; color: inherit; }
 body.focus .title { display: none; }
 
 .mini {
+  position: relative;
   width: var(--m);
   height: var(--m);
   cursor: pointer;
@@ -56,6 +57,48 @@ body.focus .title { display: none; }
   animation-delay: calc(var(--i) * -0.45s);
 }
 .mini.gone { visibility: hidden; }
+
+/* ---------- Opening: "RUBBISH" as text, then each letter flips into its cube ---------- */
+.mini-letter { display: none; }
+.title.intro .mini-letter {
+  display: flex;
+  position: absolute;
+  inset: 0;
+  align-items: center;
+  justify-content: center;
+  font: calc(var(--m) * 0.9) var(--font);
+  color: var(--paper);
+  text-shadow: 4px 4px 0 var(--ink);
+  opacity: 0;
+  transform: scale(0.3);
+  transition: opacity 0.35s ease, transform 0.5s var(--spring);
+}
+.title.intro .mini.letter-in .mini-letter { opacity: 1; transform: none; }
+.title.intro .mini-shake {
+  opacity: 0;
+  transform: rotateY(-90deg) scale(0.6);
+  transition: opacity 0.35s ease, transform 0.6s var(--spring);
+}
+.title.intro .mini.cube-in .mini-shake { opacity: 1; transform: none; }
+.title.intro .mini.cube-in .mini-letter {
+  opacity: 0;
+  transform: rotateY(90deg) scale(0.6);
+  transition: opacity 0.3s ease, transform 0.4s ease;
+}
+/* The exploded second B's slot closes up smoothly (eating the flex gap too). */
+.mini.collapse {
+  width: 0;
+  margin-right: calc(var(--m) * -0.4);
+  opacity: 0;
+  transition: width 0.5s var(--smooth), margin 0.5s var(--smooth), opacity 0.3s ease;
+}
+
+/* UI waiting for its piece of the exploded B to fly in, then popping in. */
+.pending { opacity: 0 !important; pointer-events: none !important; transform: scale(0.2) !important; }
+.arrive { animation: arrive 0.5s var(--spring); }
+@keyframes arrive {
+  from { transform: scale(1.5); filter: brightness(1.6); }
+}
 .mini-shake {
   width: 100%;
   height: 100%;
@@ -298,6 +341,16 @@ body.finale .stage { max-width: 1100px; }
 }
 
 /* ---------- Physics overlay (confetti + explosions) ---------- */
+/* Background layer: floor, reflections and celebration ripples (behind everything) */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: -1;
+}
+
 .physics {
   position: fixed;
   inset: 0;
@@ -326,8 +379,11 @@ body.grabbing, body.grabbing * { cursor: grabbing !important; user-select: none;
   top: 14px;
   right: 14px;
   z-index: 60;
-  padding: 8px 10px;
-  font: 9px var(--font);
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
   background: var(--paper);
   color: var(--ink);
   border: 3px solid var(--ink);
@@ -336,5 +392,6 @@ body.grabbing, body.grabbing * { cursor: grabbing !important; user-select: none;
   transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.4s ease;
 }
 .mute:active { transform: translate(4px, 4px); box-shadow: 0 0 0 var(--ink); }
-.mute[aria-pressed='true'] { background: #d9d9d9; color: #666; }
+.mute svg { width: 24px; height: 24px; display: block; }
+.mute[aria-pressed='true'] { background: #d9d9d9; color: #555; }
 body.focus .mute { opacity: 0; pointer-events: none; }

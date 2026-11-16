@@ -11,7 +11,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
 </head>
 <body>
-  <button id="mute" class="mute" type="button" aria-label="Toggle sound">SND ON</button>
+  <button id="mute" class="mute" type="button" aria-label="Sound on"></button>
 
   <main class="app">
     <header id="title" class="title"></header>
@@ -39,6 +39,8 @@
       </section>
     </div>
   </main>
+
+  <canvas id="backdrop" class="backdrop" aria-hidden="true"></canvas>
 
   <!-- Physics pieces behind the main cube (negative depth) and in front of it -->
   <canvas id="physics-back" class="physics back" aria-hidden="true"></canvas>

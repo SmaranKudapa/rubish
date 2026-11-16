@@ -4,10 +4,11 @@ import {
   RubiksCube, PALETTE, COLOR_ORDER, holdFor, invertMove,
   linear, easeInOutCubic, easeOutBack,
 } from './cube3d.js';
-import { createStage } from './scene.js';
+import { createStage, tween } from './scene.js';
 import { buildTitle } from './title.js';
 import { createPhysics } from './physics3d.js';
 import { sfx, isMuted, setMuted } from './audio.js';
+import { createBackdrop } from './backdrop.js';
 
 const MAX_LEN = 12;
 const FACES = 'URFDLB';
@@ -50,8 +51,9 @@ function obstacles() {
   return list;
 }
 const physics = createPhysics({ back: $('physics-back'), front: $('physics-front'), obstacles, sound: sfx });
-if (import.meta.env.DEV) window.__rubish = { physics }; // handy for poking at it in dev
-buildTitle($('title'), data, {
+const backdrop = createBackdrop($('backdrop'), physics);
+if (import.meta.env.DEV) window.__rubish = { physics, backdrop }; // handy for poking at it in dev
+const title = buildTitle($('title'), data, {
   onExplode: (x, y, size, rx, ry) => {
     physics.explode(x, y, size, rx, ry);
     boom(x, y);
@@ -65,9 +67,9 @@ const entry = $('entry');
 const steps = $('steps');
 const nextBtn = $('next');
 
-// landing → intro → steps → celebrate → (intro → steps → celebrate)* → finale → done
+// opening → landing → intro → steps → celebrate → (intro → steps → celebrate)* → finale → done
 // "done" is the landing page showing off the finished word; a new word starts over.
-let mode = 'landing';
+let mode = 'opening';
 let color = 'red'; // letter color
 let bgColor = 'white'; // background color
 let word = null; // { chars, idx, color, bg }
@@ -358,6 +360,8 @@ async function celebrate() {
   // The last letter saves its confetti for the start page with the word on it.
   const last = word.idx === word.chars.length - 1;
   if (!REDUCED && !last) physics.confetti(110);
+  const sr = $('cube').getBoundingClientRect();
+  backdrop.ripple(sr.left + sr.width / 2, sr.top + sr.height / 2, PALETTE[job.hold.letter]);
   if (!last) sfx.celebrate();
   await stage.celebrate();
   if (mode !== 'celebrate') return;
@@ -392,6 +396,8 @@ async function finale() {
   // The one big celebration, once the word is showing on the start page.
   if (!REDUCED) setTimeout(() => physics.confetti(170), 350);
   sfx.fanfare();
+  const wr = $('cube').getBoundingClientRect();
+  backdrop.ripple(wr.left + wr.width / 2, wr.top + wr.height / 2, PALETTE[word.color], true);
 }
 
 // Esc during a word: back to the plain landing page.
@@ -451,7 +457,12 @@ document.addEventListener('keydown', (e) => {
 // ---------- Sound on/off (button on the start pages, M key during a word) ----------
 const muteBtn = $('mute');
 function showMute() {
-  muteBtn.textContent = isMuted() ? 'SND OFF' : 'SND ON';
+  // Pixel-art speaker: sound waves when on, an X when muted.
+  const body = '<rect x="1" y="6" width="3" height="4"/><rect x="4" y="5" width="1" height="6"/><rect x="5" y="4" width="1" height="8"/><rect x="6" y="3" width="1" height="10"/><rect x="7" y="2" width="1" height="12"/>';
+  const waves = '<rect x="9" y="6" width="1" height="4"/><rect x="10" y="5" width="1" height="1"/><rect x="10" y="10" width="1" height="1"/><rect x="12" y="4" width="1" height="8"/><rect x="11" y="3" width="1" height="1"/><rect x="11" y="12" width="1" height="1"/><rect x="14" y="3" width="1" height="10"/><rect x="13" y="2" width="1" height="1"/><rect x="13" y="13" width="1" height="1"/>';
+  const cross = [5, 6, 7, 8, 9].map((k, i) => '<rect x="' + (9 + i) + '" y="' + k + '" width="2" height="2"/><rect x="' + (13 - i) + '" y="' + k + '" width="2" height="2"/>').join('');
+  muteBtn.innerHTML = '<svg viewBox="0 0 16 16" shape-rendering="crispEdges" fill="currentColor" aria-hidden="true">' + body + (isMuted() ? cross : waves) + '</svg>';
+  muteBtn.setAttribute('aria-label', isMuted() ? 'Sound off' : 'Sound on');
   muteBtn.setAttribute('aria-pressed', String(isMuted()));
 }
 muteBtn.addEventListener('click', (e) => {
@@ -477,4 +488,96 @@ for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) {
 }
 document.addEventListener('touchmove', (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
 
-restartLoop();
+// ---------- Opening: "RUBBISH" → cubes → the extra B explodes into the page ----------
+const shuffled = (a) => {
+  const b = a.slice();
+  for (let i = b.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [b[i], b[j]] = [b[j], b[i]];
+  }
+  return b;
+};
+
+function finishOpening() {
+  document.body.classList.remove('opening');
+  for (const el of document.querySelectorAll('.pending')) el.classList.remove('pending');
+  stage.fx.main = 1;
+  if (mode === 'opening') {
+    mode = 'landing';
+    restartLoop();
+  }
+  input.focus({ preventScroll: true });
+}
+
+// Pieces of the exploded B fly to their spots: one becomes the main cube, the
+// rest become the color squares, the word box, the > button and the sound
+// button, each popping in as its piece lands. Leftovers fall as confetti.
+function deliverPieces(pieces, uiEls) {
+  const order = shuffled(pieces);
+  const stageRect = $('cube').getBoundingClientRect();
+  const targets = [{ main: true }, ...uiEls.map((el) => ({ el }))];
+  let left = targets.length;
+  const arrived = () => { if (--left === 0) finishOpening(); };
+
+  targets.forEach((t, i) => {
+    const p = order[i];
+    let x, y, size;
+    if (t.main) {
+      x = stageRect.left + stageRect.width / 2;
+      y = stageRect.top + stageRect.height / 2;
+      size = 70;
+    } else {
+      const r = t.el.getBoundingClientRect();
+      x = r.left + r.width / 2;
+      y = r.top + r.height / 2;
+      size = Math.min(t.el.offsetWidth, t.el.offsetHeight) * 0.8;
+    }
+    physics.sendTo(p, {
+      x, y, size, delay: 520 + i * 60, dur: 850,
+      onArrive: () => {
+        if (t.main) {
+          // The main cube grows out of its piece.
+          tween(700, (e) => { stage.fx.main = e; }, easeOutBack);
+          sfx.thud();
+          mode = 'landing';
+          restartLoop();
+        } else {
+          t.el.classList.remove('pending');
+          t.el.classList.add('arrive');
+          t.el.addEventListener('animationend', () => t.el.classList.remove('arrive'), { once: true });
+          sfx.blip(i % 6);
+        }
+        arrived();
+      },
+    });
+  });
+}
+
+async function runOpening() {
+  const uiEls = [...document.querySelectorAll('#swatches .swatch, #swatches-bg .swatch'), $('char'), $('go'), $('mute')];
+  if (REDUCED) return finishOpening();
+  stage.fx.main = 0;
+  document.body.classList.add('opening');
+  for (const el of uiEls) el.classList.add('pending');
+
+  // Start with the title big and centered on the page.
+  const titleEl = $('title');
+  const r = titleEl.getBoundingClientRect();
+  titleEl.style.transition = 'none';
+  titleEl.style.transform = `translateY(${innerHeight / 2 - (r.top + r.height / 2)}px) scale(1.5)`;
+
+  await title.playIntro({
+    onBoom: (x, y, size, rx, ry) => {
+      const pieces = physics.explode(x, y, size, rx, ry);
+      boom(x, y);
+      sfx.explode();
+      // RUBISH glides up to its usual spot while the pieces fly out.
+      titleEl.style.transition = 'transform 1.1s cubic-bezier(0.65, 0, 0.35, 1)';
+      titleEl.style.transform = '';
+      titleEl.addEventListener('transitionend', () => { titleEl.style.transition = ''; }, { once: true });
+      deliverPieces(pieces, uiEls);
+    },
+  });
+}
+
+runOpening();
