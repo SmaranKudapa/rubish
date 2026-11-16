@@ -56,7 +56,8 @@ function layer(canvas) {
 }
 
 // obstacles(): on-screen outlines (convex polygons) of the 3D cubes.
-export function createPhysics({ back, front, obstacles = () => [] }) {
+// sound: optional { bounce, pop, whoosh } effects.
+export function createPhysics({ back, front, obstacles = () => [], sound = {} }) {
   const layers = { back: layer(back), front: layer(front) };
   const camera = new THREE.OrthographicCamera(0, 1, 0, -1, -3000, 3000);
 
@@ -162,6 +163,7 @@ export function createPhysics({ back, front, obstacles = () => [] }) {
     const vn = p.vx * nx + p.vy * ny;
     const top = ny < -0.35; // a surface something can rest on
     if (vn < 0) {
+      if (vn < -260) sound.bounce?.(-vn);
       const e = top && vn > -160 ? 0 : 0.42;
       p.vx -= (1 + e) * vn * nx;
       p.vy -= (1 + e) * vn * ny;
@@ -186,6 +188,7 @@ export function createPhysics({ back, front, obstacles = () => [] }) {
       const floor = floorOf(p);
       if (p.y + p.r >= floor) {
         p.y = floor - p.r;
+        if (p.vy > 260) sound.bounce?.(p.vy);
         p.vy = p.vy > 55 ? -p.vy * FLOOR_BOUNCE : Math.min(p.vy, 0);
         p.vx *= 0.985;
         // Roll along the floor; damp the other spins.
@@ -353,12 +356,14 @@ export function createPhysics({ back, front, obstacles = () => [] }) {
         [q.vx, q.vy] = throwVel();
         q.w = spinFor(q.vx);
       }
+      sound.pop?.();
     } else {
       // Drag: throw it with the pointer's speed (or just drop it if it wasn't moving).
       const fresh = performance.now() - held.lt < 80;
       p.vx = fresh ? clamp(held.vx, -3000, 3000) : 0;
       p.vy = fresh ? clamp(held.vy, -3000, 3000) : 0;
       p.w = spinFor(p.vx);
+      if (Math.hypot(p.vx, p.vy) > 900) sound.whoosh?.();
     }
     held = null;
     swallowClick = performance.now();

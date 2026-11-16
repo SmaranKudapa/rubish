@@ -42,7 +42,8 @@ function face(cls, colors) {
   return f;
 }
 
-export function buildTitle(el, data, { onExplode }) {
+// sound: optional { blip, tick, thud } effects.
+export function buildTitle(el, data, { onExplode, sound = {} }) {
   el.setAttribute('aria-label', 'RUBISH');
   LOOK.forEach(([ch, fg, bg], idx) => {
     const glyph = data[ch].glyph.join('').split('');
@@ -100,13 +101,21 @@ export function buildTitle(el, data, { onExplode }) {
         if (flick > 0.11) {
           flick = 0;
           stickers.forEach((s) => s.style.setProperty('--c', randColor()));
+          sound.blip?.(Math.floor(Math.random() * 6));
         }
         turn(dt, 360);
         shake(t, dt, t * 0.25);
       });
 
       // 2. Time bomb: spinning, shaking and flashing all speed up and grow.
+      let tickWait = 0;
       await animate(2100, (t, dt) => {
+        // Ticking that speeds up like a fuse burning down.
+        tickWait -= dt;
+        if (tickWait <= 0) {
+          sound.tick?.(t);
+          tickWait = 0.34 - 0.29 * t;
+        }
         turn(dt, 360 + 900 * t * t);
         shake(t, dt, 0.25 + 0.75 * t);
         const flash = Math.max(0, Math.sin(t * t * 42)) * t;
@@ -132,6 +141,7 @@ export function buildTitle(el, data, { onExplode }) {
       await animate(900, (t) => {
         shaker.style.transform = `translateY(${-fall * (1 - t * t * t)}px)`;
       });
+      sound.thud?.();
       await animate(420, (t) => {
         const sq = Math.sin(t * Math.PI) * (1 - t) * 0.32;
         shaker.style.transform = `scale(${1 + sq}, ${1 - sq})`;

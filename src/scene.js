@@ -68,7 +68,8 @@ function settleDrag(d, dt, now, active) {
 const EXPLODE_AT = 1.6; // spread beyond this blows the cube apart
 
 // onShatter(pieces): called with every cubie of a cube that zoomed apart too far.
-export function createStage(container, cube, { onShatter = () => {} } = {}) {
+// sound: optional { thud, whoosh } effects.
+export function createStage(container, cube, { onShatter = () => {}, sound = {} } = {}) {
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.toneMapping = THREE.NoToneMapping;
@@ -210,9 +211,9 @@ export function createStage(container, cube, { onShatter = () => {} } = {}) {
   }
 
   container.addEventListener('wheel', (e) => {
+    e.preventDefault(); // never scroll or zoom the page from over the cubes
     const t = pickTarget(e.clientX, e.clientY);
     if (!t) return;
-    e.preventDefault(); // don't scroll or zoom the page
     // Zooming in (scroll up / pinch apart) spreads; the other way pulls back.
     zoomSpread(t, -e.deltaY * (e.ctrlKey ? 0.019 : 0.0042));
   }, { passive: false });
@@ -287,6 +288,7 @@ export function createStage(container, cube, { onShatter = () => {} } = {}) {
       set(from);
       t.group.visible = true;
       await tween(950, (e) => set(from * (1 - e)), easeInCubic);
+      sound.thud?.();
       await tween(380, (_, k) => set(Math.sin(k * Math.PI) * 0.5 * (1 - k)), (k) => k);
       set(0);
       c.exploding = false;
@@ -472,7 +474,7 @@ export function createStage(container, cube, { onShatter = () => {} } = {}) {
         word.slots[i] = sl;
         const x = slotX(i, n);
         const order = earlier.length - 1 - i;
-        return wait(order * 230).then(() => tween(1000, (e, k) => {
+        return wait(order * 230).then(() => sound.whoosh?.()).then(() => tween(1000, (e, k) => {
           g.position.x = offLeft + (x - offLeft) * e;
           sl.roll = (1 - e) * -Math.PI * 2; // spins as it slides in
           sl.pop = Math.sin(Math.PI * k) * 0.18; // and swells a little mid-flight
