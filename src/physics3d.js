@@ -15,6 +15,7 @@ const CELL = 40;
 const DEPTH_TOUCH = 0.28; // pieces closer than this in depth can collide
 
 const easeInCubic = (t) => t * t * t;
+const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const rand = (a, b) => a + Math.random() * (b - a);
 const shuffle = (a) => {
   for (let i = a.length - 1; i > 0; i--) {
@@ -53,8 +54,8 @@ function layer(canvas) {
   return { renderer, scene };
 }
 
-// obstacle(): returns the main cube's on-screen circle { x, y, r } or null.
-export function createPhysics({ back, front, obstacle = () => null }) {
+// obstacles(): on-screen boxes { x, y, hw, hh } around the 3D cubes.
+export function createPhysics({ back, front, obstacles = () => [] }) {
   const layers = { back: layer(back), front: layer(front) };
   const camera = new THREE.OrthographicCamera(0, 1, 0, -1, -3000, 3000);
 
@@ -92,7 +93,7 @@ export function createPhysics({ back, front, obstacle = () => null }) {
     if (quat) mesh.quaternion.copy(quat);
     else mesh.quaternion.setFromEuler(new THREE.Euler(rand(0, 6.3), rand(0, 6.3), rand(0, 6.3)));
     // About half the pieces near the cube's depth bounce off it.
-    const hitsCube = Math.abs(z) < 0.4 && Math.random() < 0.55;
+    const hitsCube = Math.abs(z) < 0.45 && Math.random() < 0.6;
     if (hitsCube) z = Math.abs(z);
     (z < 0 ? layers.back : layers.front).scene.add(mesh);
     const s = size * depthScale(z);
@@ -106,6 +107,43 @@ export function createPhysics({ back, front, obstacle = () => null }) {
       running = true;
       last = performance.now();
       requestAnimationFrame(frame);
+    }
+  }
+
+  // Circle-vs-box: push the piece out of the box along the shortest way and
+  // reflect its velocity. A piece sitting on the flat top comes to rest there.
+  function collideBox(p, o, now) {
+    const cx = clamp(p.x, o.x - o.hw, o.x + o.hw);
+    const cy = clamp(p.y, o.y - o.hh, o.y + o.hh);
+    let dx = p.x - cx, dy = p.y - cy;
+    let d2 = dx * dx + dy * dy;
+    if (d2 >= p.r * p.r) return;
+    let nx, ny, pen;
+    if (d2 > 1e-6) {
+      const d = Math.sqrt(d2);
+      nx = dx / d; ny = dy / d; pen = p.r - d;
+    } else {
+      // Center is inside the box: leave through the nearest side.
+      const left = p.x - (o.x - o.hw), right = o.x + o.hw - p.x;
+      const top = p.y - (o.y - o.hh), bottom = o.y + o.hh - p.y;
+      const m = Math.min(left, right, top, bottom);
+      if (m === top) { nx = 0; ny = -1; pen = top + p.r; }
+      else if (m === left) { nx = -1; ny = 0; pen = left + p.r; }
+      else if (m === right) { nx = 1; ny = 0; pen = right + p.r; }
+      else { nx = 0; ny = 1; pen = bottom + p.r; }
+    }
+    p.x += nx * pen;
+    p.y += ny * pen;
+    const vn = p.vx * nx + p.vy * ny;
+    if (vn < 0) {
+      const e = ny < -0.7 && vn > -140 ? 0 : 0.45; // settle when landing softly on top
+      p.vx -= (1 + e) * vn * nx;
+      p.vy -= (1 + e) * vn * ny;
+    }
+    if (ny < -0.7) {
+      p.vx *= 0.96;
+      p.w.multiplyScalar(0.9);
+      land(p, now);
     }
   }
 
@@ -128,23 +166,8 @@ export function createPhysics({ back, front, obstacle = () => null }) {
       if (p.x - p.r < 0) { p.x = p.r; p.vx = Math.abs(p.vx) * RESTITUTION; }
       if (p.x + p.r > W) { p.x = W - p.r; p.vx = -Math.abs(p.vx) * RESTITUTION; }
 
-      // Bounce off the main cube (a static circle on screen).
-      if (obs && p.hitsCube) {
-        const dx = p.x - obs.x, dy = p.y - obs.y;
-        const R = obs.r + p.r;
-        const d2 = dx * dx + dy * dy;
-        if (d2 < R * R && d2 > 0) {
-          const d = Math.sqrt(d2), nx = dx / d, ny = dy / d;
-          p.x = obs.x + nx * R;
-          p.y = obs.y + ny * R;
-          const vn = p.vx * nx + p.vy * ny;
-          if (vn < 0) {
-            p.vx -= (1 + 0.55) * vn * nx;
-            p.vy -= (1 + 0.55) * vn * ny;
-            p.w.z += (p.vx * ny - p.vy * nx) * 0.02;
-          }
-        }
-      }
+      // Bounce off (or come to rest on) the cubes: static boxes on screen.
+      if (p.hitsCube) for (const o of obs) collideBox(p, o, now);
     }
 
     const grid = new Map();
@@ -196,7 +219,7 @@ export function createPhysics({ back, front, obstacle = () => null }) {
     const dt = Math.min(0.033, (t - last) / 1000);
     last = t;
     const now = performance.now();
-    const obs = obstacle();
+    const obs = obstacles();
     for (let i = 0; i < SUBSTEPS; i++) step(dt / SUBSTEPS, now, obs);
 
     for (const p of parts) {
@@ -228,24 +251,16 @@ export function createPhysics({ back, front, obstacle = () => null }) {
   }
 
   return {
-    // Celebration: 1x1x1 cubes (a different color on every face) burst from a
-    // point, with extra cannons from the bottom corners.
-    confetti(x, y, count = 90, cannons = true) {
+    // Celebration: 1x1x1 cubes (a different color on every face) rain down from
+    // above the top of the page in random directions and speeds, spread over
+    // about a second so it falls like a shower. Some land on the cubes.
+    confetti(count = 120) {
       for (let i = 0; i < count; i++) {
-        add({
-          x: x + rand(-30, 30), y: y + rand(-20, 20),
-          vx: rand(-650, 650), vy: rand(-1350, -500),
+        setTimeout(() => add({
+          x: rand(0, W), y: rand(-80, -15),
+          vx: rand(-420, 420), vy: rand(-150, 650),
           size: rand(11, 16), faces: shuffle([...COLOR_ORDER]),
-        });
-      }
-      if (!cannons) return;
-      for (let i = 0; i < count * 0.6; i++) {
-        const left = i % 2 === 0;
-        add({
-          x: left ? 10 : W - 10, y: H * 0.8,
-          vx: (left ? 1 : -1) * rand(350, 950), vy: rand(-1500, -850),
-          size: rand(11, 16), faces: shuffle([...COLOR_ORDER]),
-        });
+        }), rand(0, 900));
       }
     },
 
