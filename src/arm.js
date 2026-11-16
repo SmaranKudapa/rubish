@@ -144,8 +144,12 @@ export function robotArm({ stage, cube, to, physics, sound = {}, onPress = () =>
     const POP = 320, GROW = 1150, HOLD = 250, POKE = 380, AFTER = 480;
     const growAt = 180, pokeAt = growAt + GROW + HOLD, blowAt = pokeAt + POKE + AFTER;
     let pressed = false, ticks = 0, last = null;
-    const prevZ = canvas.style.zIndex;
-    canvas.style.zIndex = '1000'; // the arm draws over all of the UI (buttons, achievement toast) while it's out
+    // The page lives in its own stacking layer, so to draw over all of the UI
+    // (corner buttons, achievement toast) the canvas has to step out of it to
+    // the top level while the arm is out.
+    const home = canvas.parentNode, nextSib = canvas.nextSibling;
+    document.body.appendChild(canvas);
+    canvas.classList.add('lifted');
     stage.fx.armHold = true; // no spin ripples on the word while it's attached
     const t0 = performance.now();
     const m4 = new THREE.Matrix4();
@@ -218,7 +222,8 @@ export function robotArm({ stage, cube, to, physics, sound = {}, onPress = () =>
       for (const gg of geos) gg.dispose();
       for (const mm of mats) mm.dispose();
       ramp.dispose();
-      canvas.style.zIndex = prevZ;
+      canvas.classList.remove('lifted');
+      home.insertBefore(canvas, nextSib);
       stage.fx.armHold = false;
       resolve();
     };
