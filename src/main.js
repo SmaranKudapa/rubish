@@ -473,8 +473,9 @@ function tossKey(btn, label = null) {
   const x1 = c.left + c.width / 2, y1 = c.top + c.height / 2;
   // Shift+Enter (a label) is the big version: everything after the stretch hits harder.
   const big = !!label;
-  const lift = (110 + Math.abs(y0 - y1) * 0.35) * (big ? 1.35 : 1); // how high it arcs above the straight line
-  const spin = (Math.random() < 0.5 ? -1 : 1) * (420 + Math.random() * 300) * (big ? 1.6 : 1);
+  const lift = (110 + Math.abs(y0 - y1) * 0.35) * (big ? 0.95 : 0.7); // how high it arcs above the straight line
+  // Whole turns, so it lands flat, facing us.
+  const spin = (Math.random() < 0.5 ? -1 : 1) * 360 * (big ? 2 : 1);
   // A label (Shift+Enter): the chip first struggles to stretch out to show it,
   // growing to the left (its right edge stays put, so "to skip" stays readable).
   const w0 = r.width, right = r.right;
@@ -538,8 +539,8 @@ function tossKey(btn, label = null) {
   let launched = false, snapped = false;
   // Tumbling end over end in 3D once it's off.
   const sgn = () => (Math.random() < 0.5 ? -1 : 1);
-  const tumbleX = sgn() * (300 + Math.random() * 240) * (big ? 1.4 : 1);
-  const tumbleY = sgn() * (140 + Math.random() * 200) * (big ? 1.4 : 1);
+  const tumbleX = sgn() * 360 * (big ? 2 : 1);
+  const tumbleY = sgn() * 360;
   // Turn the flat chip into a solid 3D keycap: a front and back with the key's
   // name, and grey sides, all around its middle.
   const make3d = () => {
@@ -620,10 +621,14 @@ function tossKey(btn, label = null) {
     const u = (t - PREP) / (1 - PREP);
     const x = x0 + (x1 - x0) * u;
     const y = y0 + (y1 - y0) * u * u - Math.sin(Math.PI * u) * lift; // up, then down into the cube
-    const s = (1 + 0.5 * Math.sin(Math.PI * u)) * (1 - 0.8 * u ** 3); // swells mid-air, shrinks into it
+    // It flies up toward the screen (looming big), then comes back down and
+    // lands on the cube's face.
+    const z = (big ? 560 : 450) * Math.sin(Math.PI * u ** 0.8);
+    const s = 1 - 0.2 * u * u; // a touch smaller by the time it's down at the cube
     const stretch = 1 + (big ? 0.6 : 0.35) * Math.exp(-7 * u); // stretched tall as it springs off
-    chip.style.transform = `perspective(700px) translate(${x - x0}px, ${y - y0}px) rotate(${spin * u}deg) `
-      + `rotateX(${tumbleX * u}deg) rotateY(${tumbleY * u}deg) scale(${s / stretch}, ${s * stretch})`;
+    const rot = 1 - (1 - u) ** 2; // tumbling fast off the hint, settling flat as it lands
+    chip.style.transform = `perspective(900px) translate(${x - x0}px, ${y - y0}px) translateZ(${z}px) rotate(${spin * rot}deg) `
+      + `rotateX(${tumbleX * rot}deg) rotateY(${tumbleY * rot}deg) scale(${s / stretch}, ${s * stretch})`;
   }, linear).then(() => {
     // Slams into the cube and bursts into pieces of cube confetti.
     chip.remove();

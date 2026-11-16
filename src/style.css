@@ -724,6 +724,7 @@ body.no-cursor, body.no-cursor * { cursor: none !important; }
   white-space: nowrap;
   background: var(--paper);
   border: 2px solid var(--ink);
+  backface-visibility: hidden; /* only the side facing us shows (no mirrored text) */
 }
 .kbd-3d .f.side { background: #bdbdbd; }
 
