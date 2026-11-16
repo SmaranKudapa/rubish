@@ -125,18 +125,48 @@ export function createStage(container, cube, { onShatter = () => {} } = {}) {
   const clock = new THREE.Clock();
   const render = () => renderer.render(scene, camera);
 
+  // The canvas covers the whole window (above the page, clicks pass through)
+  // so an expanded cube can spill over the UI. The projection is set up so
+  // the stage area still shows exactly the normal 30° view: the rest of the
+  // window is just extra picture around it.
+  let view = { left: 0, top: 0, width: 1, height: 1 };
+  function updateProjection() {
+    const r = container.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    view = r;
+    aspect = r.width / r.height;
+    const W = window.innerWidth, H = window.innerHeight;
+    const n = camera.near;
+    const t0 = n * TAN15;
+    const px = (2 * t0) / r.height; // near-plane units per screen pixel
+    camera.projectionMatrix.makePerspective(
+      -t0 * aspect - r.left * px, t0 * aspect + (W - r.right) * px,
+      t0 + r.top * px, -t0 - (H - r.bottom) * px, n, camera.far,
+    );
+    camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
+  }
+
+  // World-space edges of the window at the cube's depth, for camera distance z.
+  function screenEdges(z) {
+    const halfH = z * TAN15;
+    const ppu = view.height / (2 * halfH); // pixels per world unit
+    return {
+      left: -halfH * aspect - view.left / ppu,
+      right: halfH * aspect + (window.innerWidth - view.right) / ppu,
+      top: halfH + view.top / ppu,
+      bottom: -halfH - (window.innerHeight - view.bottom) / ppu,
+    };
+  }
+
+  const toScreen = (p) => [((p.x + 1) / 2) * window.innerWidth, ((1 - p.y) / 2) * window.innerHeight];
+
   const resize = () => {
-    const w = container.clientWidth, h = container.clientHeight;
-    if (!w || !h) return;
-    renderer.setSize(w, h, false);
-    aspect = w / h;
-    camera.aspect = aspect;
-    camera.updateProjectionMatrix();
-    // Resizing clears the canvas after this frame was drawn; redraw right away
-    // so the cube never blinks out while the stage animates its size.
-    render();
+    renderer.setSize(window.innerWidth, window.innerHeight, false);
+    updateProjection();
+    render(); // a resize clears the canvas; redraw right away so nothing blinks
   };
-  new ResizeObserver(resize).observe(container);
+  window.addEventListener('resize', resize);
+  new ResizeObserver(() => { updateProjection(); render(); }).observe(container);
   resize();
   camZ = targetZ();
 
@@ -157,8 +187,7 @@ export function createStage(container, cube, { onShatter = () => {} } = {}) {
 
   // The cube under the pointer. On the plain stage, anywhere counts as the main cube.
   function pickTarget(clientX, clientY) {
-    const rect = container.getBoundingClientRect();
-    ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+    ndc.set((clientX / window.innerWidth) * 2 - 1, -(clientY / window.innerHeight) * 2 + 1);
     raycaster.setFromCamera(ndc, camera);
     const list = allTargets().filter((t) => t.group.visible);
     const hit = raycaster.intersectObjects(list.map((t) => t.group), true)[0];
@@ -184,8 +213,8 @@ export function createStage(container, cube, { onShatter = () => {} } = {}) {
     const t = pickTarget(e.clientX, e.clientY);
     if (!t) return;
     e.preventDefault(); // don't scroll or zoom the page
-    // Scrolling down / pinching in (zoom out) spreads; the other way pulls back.
-    zoomSpread(t, e.deltaY * (e.ctrlKey ? 0.012 : 0.0028));
+    // Zooming in (scroll up / pinch apart) spreads; the other way pulls back.
+    zoomSpread(t, -e.deltaY * (e.ctrlKey ? 0.012 : 0.0028));
   }, { passive: false });
 
   // Two-finger pinch on touch screens.
@@ -207,7 +236,7 @@ export function createStage(container, cube, { onShatter = () => {} } = {}) {
     if (pinch && touches.size === 2) {
       const [[ax, ay], [bx, by]] = [...touches.values()];
       const d = Math.hypot(ax - bx, ay - by);
-      zoomSpread(pinch.t, (pinch.d - d) * 0.01); // fingers closing = zoom out = spread
+      zoomSpread(pinch.t, (d - pinch.d) * 0.01); // fingers apart = zoom in = spread
       pinch.d = d;
     }
   });
@@ -223,9 +252,7 @@ export function createStage(container, cube, { onShatter = () => {} } = {}) {
   function shatter(t) {
     const c = t.cube;
     c.exploding = true;
-    const rect = container.getBoundingClientRect();
-    const pxPerUnit = rect.height / 2 / (camZ * TAN15);
-    const toScreen = (p) => [rect.left + ((p.x + 1) / 2) * rect.width, rect.top + ((1 - p.y) / 2) * rect.height];
+    const pxPerUnit = view.height / 2 / (camZ * TAN15);
     t.group.updateMatrixWorld(true);
     const [cx, cy] = toScreen(t.group.getWorldPosition(new THREE.Vector3()).project(camera));
     const q = new THREE.Quaternion();
@@ -248,11 +275,15 @@ export function createStage(container, cube, { onShatter = () => {} } = {}) {
     t.group.visible = false;
     c.setSpread(0);
     c.spread = 0;
+    const set = t.slot ? (y) => { t.slot.y = y; } : (y) => { fx.mainY = y; };
     setTimeout(async () => {
+      // Fall back in from above the very top of the window (ease in), then a
+      // little bounce. Move it up there *before* showing it so it never blinks
+      // into view at its old spot.
+      const from = screenEdges(camZ).top + CUBE_HALF * 2.2;
+      set(from);
       t.group.visible = true;
-      // Fall back in from the top (ease in), then a little bounce.
-      const set = t.slot ? (y) => { t.slot.y = y; } : (y) => { fx.mainY = y; };
-      await tween(900, (e) => set(16 * (1 - e)), easeInCubic);
+      await tween(950, (e) => set(from * (1 - e)), easeInCubic);
       await tween(380, (_, k) => set(Math.sin(k * Math.PI) * 0.5 * (1 - k)), (k) => k);
       set(0);
       c.exploding = false;
@@ -303,6 +334,7 @@ export function createStage(container, cube, { onShatter = () => {} } = {}) {
     settleDrag(mainDrag, dt, now, dragging === mainDrag);
     if (word) for (const sl of word.slots) if (sl) settleDrag(sl.drag, dt, now, dragging === sl.drag);
 
+    updateProjection(); // the stage can move or change size (layout transitions)
     camZ += (targetZ() - camZ) * (1 - Math.exp(-dt * 3));
     camera.position.set(0, 0, camZ);
     camera.lookAt(0, 0, 0);
@@ -381,7 +413,6 @@ export function createStage(container, cube, { onShatter = () => {} } = {}) {
     // The exact on-screen outline of every visible cube (the convex hull of its
     // 8 projected corners, as drawn in the last frame), for confetti to hit.
     obstacles() {
-      const rect = container.getBoundingClientRect();
       const groups = [];
       if (holder.visible && cube.group.parent === holder) groups.push(cube.group);
       if (word) for (const sl of word.slots) if (sl) groups.push(sl.cube.group);
@@ -389,7 +420,7 @@ export function createStage(container, cube, { onShatter = () => {} } = {}) {
         const pts = [];
         for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) {
           v.set(sx, sy, sz).multiplyScalar(CUBE_HALF).applyMatrix4(g.matrixWorld).project(camera);
-          pts.push([rect.left + ((v.x + 1) / 2) * rect.width, rect.top + ((1 - v.y) / 2) * rect.height]);
+          pts.push(toScreen(v));
         }
         return hull(pts);
       });
@@ -423,7 +454,9 @@ export function createStage(container, cube, { onShatter = () => {} } = {}) {
 
       // The earlier letters pop in from the left edge of the screen, nearest
       // slot first so none of them has to pass through another.
-      const offLeft = -(targetZ() * TAN15 * aspect + 4);
+      // Start just past the very left edge of the window (at the zoomed-out
+      // camera distance the word will settle at).
+      const offLeft = screenEdges(targetZ()).left - CUBE_HALF * 2;
       const arrivals = earlier.map((c, i) => {
         castShadows(c.group);
         const g = new THREE.Group();

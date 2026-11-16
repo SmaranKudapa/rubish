@@ -130,7 +130,18 @@ body.focus .stage { height: clamp(280px, 58vh, 560px); }
 body.finale .stage { max-width: 1100px; }
 .cube { position: absolute; inset: 0; cursor: grab; touch-action: none; }
 .cube.dragging { cursor: grabbing; }
-.cube canvas { width: 100%; height: 100%; display: block; }
+/* The cube's canvas covers the whole window above the page, so cubes (even
+   expanded ones) draw over the UI. Clicks pass through; the .cube box below
+   still catches drags and zooms over the stage. */
+.cube canvas {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  display: block;
+  pointer-events: none;
+  z-index: 10;
+}
 .caption {
   position: absolute;
   bottom: 0;
