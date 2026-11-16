@@ -46,6 +46,7 @@ function obstacles() {
   return list;
 }
 const physics = createPhysics({ back: $('physics-back'), front: $('physics-front'), obstacles });
+if (import.meta.env.DEV) window.__rubish = { physics }; // handy for poking at it in dev
 buildTitle($('title'), data, {
   onExplode: (x, y, size, rx, ry) => {
     physics.explode(x, y, size, rx, ry);
@@ -280,8 +281,7 @@ async function beginLetter() {
   if (!(await scrambleAndSolve(alive))) return;
   if (!(await cube.reorient(hold.front, hold.top, speed(420), easeInOutCubic, alive))) return;
   if (!alive()) return;
-  flash('');
-  stage.pop();
+  stage.pop(); // the big letter stays up for this letter's whole run
   mode = 'steps';
   nextBtn.disabled = false;
   if (myJob.finish) finishLetter();
@@ -358,6 +358,7 @@ async function celebrate() {
 async function finale() {
   mode = 'finale';
   show(steps, false);
+  flash('');
   document.body.classList.add('finale');
   const earlier = [];
   for (const ch of word.chars.slice(0, -1)) {
