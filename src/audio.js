@@ -151,6 +151,12 @@ export const sfx = {
     lfo.stop(t + sec + 0.05);
     tone({ type: 'sine', freq: 2600, to: 280, dur: 3, vol: 0.08, delay: sec - 3, attack: 2.6 });
   },
+  // Something smacking into the screen glass.
+  glass() {
+    noise({ dur: 0.5, vol: 0.35, freq: 4200, to: 1800, q: 1.5 });
+    tone({ type: 'square', freq: 2400, to: 900, dur: 0.12, vol: 0.08 });
+    tone({ type: 'triangle', freq: 180, to: 60, dur: 0.25, vol: 0.2 });
+  },
   launch() {
     noise({ dur: 1.4, vol: 0.22, freq: 200, to: 3200, q: 0.8 });
     tone({ type: 'triangle', freq: 95, to: 40, dur: 0.8, vol: 0.25 });

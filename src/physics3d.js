@@ -422,6 +422,12 @@ export function createPhysics({ back, front, obstacles = () => [], sound = {}, o
       color: PALETTE[p.faces.find((f) => f !== 'black')] || null,
     })),
 
+    // A random piece of debris that's free to be sent somewhere (or null).
+    pickPiece() {
+      const free = parts.filter((q) => !q.held && !q.home && q.size > 6);
+      return free.length ? free[Math.floor(Math.random() * free.length)] : null;
+    },
+
     // Where a piece at depth z touches the floor (screen y).
     floorY: (z) => H - FLOOR_LIFT - (1 - z) * 14,
 
