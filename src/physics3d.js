@@ -54,7 +54,7 @@ function layer(canvas) {
   return { renderer, scene };
 }
 
-// obstacles(): on-screen boxes { x, y, hw, hh } around the 3D cubes.
+// obstacles(): on-screen outlines (convex polygons) of the 3D cubes.
 export function createPhysics({ back, front, obstacles = () => [] }) {
   const layers = { back: layer(back), front: layer(front) };
   const camera = new THREE.OrthographicCamera(0, 1, 0, -1, -3000, 3000);
@@ -93,7 +93,7 @@ export function createPhysics({ back, front, obstacles = () => [] }) {
     if (quat) mesh.quaternion.copy(quat);
     else mesh.quaternion.setFromEuler(new THREE.Euler(rand(0, 6.3), rand(0, 6.3), rand(0, 6.3)));
     // About half the pieces near the cube's depth bounce off it.
-    const hitsCube = Math.abs(z) < 0.45 && Math.random() < 0.6;
+    const hitsCube = Math.abs(z) < 0.5 && Math.random() < 0.85;
     if (hitsCube) z = Math.abs(z);
     (z < 0 ? layers.back : layers.front).scene.add(mesh);
     const s = size * depthScale(z);
@@ -110,39 +110,66 @@ export function createPhysics({ back, front, obstacles = () => [] }) {
     }
   }
 
-  // Circle-vs-box: push the piece out of the box along the shortest way and
-  // reflect its velocity. A piece sitting on the flat top comes to rest there.
-  function collideBox(p, o, now) {
-    const cx = clamp(p.x, o.x - o.hw, o.x + o.hw);
-    const cy = clamp(p.y, o.y - o.hh, o.y + o.hh);
-    let dx = p.x - cx, dy = p.y - cy;
-    let d2 = dx * dx + dy * dy;
-    if (d2 >= p.r * p.r) return;
+  // Circle vs. a cube's on-screen outline (convex polygon, screen coords).
+  // Push the piece out through the nearest edge and bounce it. On upward-facing
+  // edges (the cube's top) friction is strong, so pieces stick and pile up
+  // instead of sliding straight off the slope.
+  function collidePoly(p, poly, now) {
+    let cx = 0, cy = 0;
+    for (const [x, y] of poly) { cx += x; cy += y; }
+    cx /= poly.length;
+    cy /= poly.length;
+    // Quick reject: farther than the polygon's reach.
+    let reach = 0;
+    for (const [x, y] of poly) reach = Math.max(reach, Math.hypot(x - cx, y - cy));
+    if (Math.hypot(p.x - cx, p.y - cy) > reach + p.r) return;
+
+    let inside = true;
+    let bestIn = -Infinity, inN = null; // nearest edge when inside
+    let bestOut = Infinity, outQ = null; // nearest boundary point when outside
+    for (let i = 0; i < poly.length; i++) {
+      const [ax, ay] = poly[i];
+      const [bx, by] = poly[(i + 1) % poly.length];
+      const ex = bx - ax, ey = by - ay;
+      const len = Math.hypot(ex, ey) || 1;
+      let nx = ey / len, ny = -ex / len;
+      if ((ax - cx) * nx + (ay - cy) * ny < 0) { nx = -nx; ny = -ny; } // point outward
+      const sd = (p.x - ax) * nx + (p.y - ay) * ny;
+      if (sd > 0) inside = false;
+      if (sd > bestIn) { bestIn = sd; inN = [nx, ny]; }
+      const t = clamp(((p.x - ax) * ex + (p.y - ay) * ey) / (len * len), 0, 1);
+      const qx = ax + ex * t, qy = ay + ey * t;
+      const d = Math.hypot(p.x - qx, p.y - qy);
+      if (d < bestOut) { bestOut = d; outQ = [qx, qy]; }
+    }
+
     let nx, ny, pen;
-    if (d2 > 1e-6) {
-      const d = Math.sqrt(d2);
-      nx = dx / d; ny = dy / d; pen = p.r - d;
+    if (inside) {
+      [nx, ny] = inN;
+      pen = p.r - bestIn;
     } else {
-      // Center is inside the box: leave through the nearest side.
-      const left = p.x - (o.x - o.hw), right = o.x + o.hw - p.x;
-      const top = p.y - (o.y - o.hh), bottom = o.y + o.hh - p.y;
-      const m = Math.min(left, right, top, bottom);
-      if (m === top) { nx = 0; ny = -1; pen = top + p.r; }
-      else if (m === left) { nx = -1; ny = 0; pen = left + p.r; }
-      else if (m === right) { nx = 1; ny = 0; pen = right + p.r; }
-      else { nx = 0; ny = 1; pen = bottom + p.r; }
+      if (bestOut >= p.r) return;
+      nx = (p.x - outQ[0]) / (bestOut || 1);
+      ny = (p.y - outQ[1]) / (bestOut || 1);
+      pen = p.r - bestOut;
     }
     p.x += nx * pen;
     p.y += ny * pen;
+
     const vn = p.vx * nx + p.vy * ny;
+    const top = ny < -0.35; // a surface something can rest on
     if (vn < 0) {
-      const e = ny < -0.7 && vn > -140 ? 0 : 0.45; // settle when landing softly on top
+      const e = top && vn > -160 ? 0 : 0.42;
       p.vx -= (1 + e) * vn * nx;
       p.vy -= (1 + e) * vn * ny;
     }
-    if (ny < -0.7) {
-      p.vx *= 0.96;
-      p.w.multiplyScalar(0.9);
+    if (top) {
+      // Friction: kill most of the sliding along the surface.
+      const tx = -ny, ty = nx;
+      const vt = p.vx * tx + p.vy * ty;
+      p.vx -= vt * 0.45 * tx;
+      p.vy -= vt * 0.45 * ty;
+      p.w.multiplyScalar(0.85);
       land(p, now);
     }
   }
@@ -167,7 +194,7 @@ export function createPhysics({ back, front, obstacles = () => [] }) {
       if (p.x + p.r > W) { p.x = W - p.r; p.vx = -Math.abs(p.vx) * RESTITUTION; }
 
       // Bounce off (or come to rest on) the cubes: static boxes on screen.
-      if (p.hitsCube) for (const o of obs) collideBox(p, o, now);
+      if (p.hitsCube) for (const o of obs) collidePoly(p, o, now);
     }
 
     const grid = new Map();

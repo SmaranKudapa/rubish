@@ -14,6 +14,24 @@ const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const castShadows = (obj) => obj.traverse((m) => { if (m.isMesh) m.castShadow = true; });
+const CUBE_HALF = 1.52; // half the cube's edge in world units (3 cubies at 1.03 spacing)
+
+// Convex hull of 2D points (monotone chain).
+function hull(points) {
+  const p = points.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lower = [], upper = [];
+  for (const q of p) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], q) <= 0) lower.pop();
+    lower.push(q);
+  }
+  for (let i = p.length - 1; i >= 0; i--) {
+    const q = p[i];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], q) <= 0) upper.pop();
+    upper.push(q);
+  }
+  return lower.slice(0, -1).concat(upper.slice(0, -1));
+}
 
 export function tween(duration, fn, ease = easeInOutCubic) {
   return new Promise((resolve) => {
@@ -242,23 +260,21 @@ export function createStage(container, cube) {
       Object.assign(fx, { scale: 1, lift: 0, glow: 0 });
     },
 
-    // On-screen boxes around every visible cube, for confetti to land on.
+    // The exact on-screen outline of every visible cube (the convex hull of its
+    // 8 projected corners, as drawn in the last frame), for confetti to hit.
     obstacles() {
       const rect = container.getBoundingClientRect();
-      const pxPerUnit = rect.height / 2 / (camZ * TAN15);
-      const box = (obj, size) => {
-        obj.getWorldPosition(v).project(camera);
-        const half = size * pxPerUnit;
-        return {
-          x: rect.left + ((v.x + 1) / 2) * rect.width,
-          y: rect.top + ((1 - v.y) / 2) * rect.height,
-          hw: half * 0.95, hh: half,
-        };
-      };
-      const out = [];
-      if (holder.visible && cube.group.parent === holder) out.push(box(holder, 2 * fx.main * fx.scale));
-      if (word) for (const sl of word.slots) if (sl) out.push(box(sl.g, 2));
-      return out;
+      const groups = [];
+      if (holder.visible && cube.group.parent === holder) groups.push(cube.group);
+      if (word) for (const sl of word.slots) if (sl) groups.push(sl.g.children[0]);
+      return groups.map((g) => {
+        const pts = [];
+        for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) {
+          v.set(sx, sy, sz).multiplyScalar(CUBE_HALF).applyMatrix4(g.matrixWorld).project(camera);
+          pts.push([rect.left + ((v.x + 1) / 2) * rect.width, rect.top + ((1 - v.y) / 2) * rect.height]);
+        }
+        return hull(pts);
+      });
     },
 
     hasWord: () => !!word,
