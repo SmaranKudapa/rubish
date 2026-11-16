@@ -13,7 +13,7 @@ import { createBackdrop } from './backdrop.js';
 const MAX_LEN = 12;
 const FACES = 'URFDLB';
 const $ = (id) => document.getElementById(id);
-const CHARS = Object.keys(data);
+const CHARS = Object.keys(data).filter((c) => /^[A-Z]$/.test(c)); // letters only
 const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const speed = (ms) => (REDUCED ? 0 : ms);
 const sleep = async (ms, alive = () => true) => {
@@ -236,7 +236,7 @@ function shake() {
 // ---------- Starting a word ----------
 // auto = true (Shift+Enter): play every letter of the word by itself.
 async function start(auto = false) {
-  const text = input.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, MAX_LEN);
+  const text = input.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, MAX_LEN);
   if (!text) return shake();
   if (mode !== 'landing' && mode !== 'done') return;
   mode = 'intro';
@@ -415,7 +415,7 @@ function goHome() {
 
 // ---------- Input wiring ----------
 input.addEventListener('input', () => {
-  input.value = input.value.replace(/[^a-z0-9]/gi, '').slice(0, MAX_LEN).toUpperCase();
+  input.value = input.value.replace(/[^a-z]/gi, '').slice(0, MAX_LEN).toUpperCase();
 });
 input.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && e.shiftKey) { // Shift+Enter: start and auto-play the whole word
@@ -443,7 +443,7 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   // Typing anywhere on the entry screen goes into the box.
-  if ((mode === 'landing' || mode === 'done') && e.target !== input && /^[a-z0-9]$/i.test(e.key) && !e.metaKey && !e.ctrlKey) {
+  if ((mode === 'landing' || mode === 'done') && e.target !== input && /^[a-z]$/i.test(e.key) && !e.metaKey && !e.ctrlKey) {
     input.value = (input.value + e.key.toUpperCase()).slice(0, MAX_LEN);
     input.focus();
     e.preventDefault();

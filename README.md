@@ -1,6 +1,6 @@
 # rubish
 
-Type a word (letters A–Z, digits 0–9) and get the exact moves that make a solved Rubik's cube show each character on its front face, one letter at a time.
+Type a word (letters A–Z) and get the exact moves that make a solved Rubik's cube show each letter on its front face, one letter at a time.
 
 **Live:** https://rubish-delta.vercel.app
 
@@ -22,7 +22,7 @@ All sequences are precomputed; the site is static, built with Vite and Three.js.
 3. **Letter color:** the sequences are generated with the letter on the front face and the background on the top face (or the reverse, when the glyph's fixed center sticker is background). So any letter color works by changing how you hold the cube: `holdFor()` in `src/cube3d.js` picks the front/top colors.
 4. `src/cube3d.js` is the 3D cube model (animated turns, whole-cube rotations). `scripts/check-cube.mjs` plays every character in every color on it and confirms the front face matches.
 
-A 3×3 face can't tell some characters apart (2/Z, 5/S, 9/Q share shapes).
+A 3×3 face is tiny, so a few letters are only rough shapes. The generator also has patterns for digits, but the site only accepts letters.
 
 ## Development
 
