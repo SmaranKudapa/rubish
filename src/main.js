@@ -275,14 +275,17 @@ async function launchNuke() {
   mode = 'nuke';
   loopToken++; // stop the landing shuffle
   recolorToken++;
-  input.value = '';
+  // Lock NUKE into the word box: no more editing.
+  input.value = 'NUKE';
+  input.readOnly = true;
+  input.classList.add('locked');
   input.blur();
   caption('');
   const uiEls = [
     ...document.querySelectorAll('#swatches .swatch, #swatches-bg .swatch'),
     $('char'), $('go'), $('mute'), $('ach-btn'), $('caption'),
   ];
-  await runNuke({ stage, physics, title, uiEls, sound: sfx, canHover, onImpact: () => ach.unlock('nuke') });
+  await runNuke({ stage, physics, title, uiEls, input, data, sound: sfx, canHover, onImpact: () => ach.unlock('nuke') });
 }
 
 // Scramble hard while shaking, then solve back to a clean cube, still shaking

@@ -610,29 +610,43 @@ body.no-cursor, body.no-cursor * { cursor: none !important; }
 @keyframes warn-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.15; } }
 .nuke-sprite { position: absolute; left: 0; top: 0; image-rendering: pixelated; will-change: transform; }
 .nuke-flash { position: absolute; inset: 0; background: #fff; opacity: 0; }
-.nuke-cloud {
+/* Animated mushroom cloud, behind the whole page (but above the floor) */
+.nuke-back { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+.nuke-cloud { position: absolute; image-rendering: pixelated; animation: cloud-in 0.8s ease-out; }
+@keyframes cloud-in { from { opacity: 0; } }
+
+/* Fireball at the point of impact */
+.nuke-burst {
   position: absolute;
-  image-rendering: pixelated;
-  transform-origin: 50% 100%;
-  transform: translateY(30%) scale(0.25);
-  opacity: 0;
-  transition: transform 4.5s cubic-bezier(0.16, 1, 0.3, 1), opacity 1s ease;
+  width: 60px;
+  height: 60px;
+  margin: -30px 0 0 -30px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #fff 0%, #fff6c8 30%, rgba(255, 140, 0, 0.8) 55%, transparent 72%);
+  animation: burst 1.4s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
 }
-.nuke-cloud.rise { transform: none; opacity: 1; }
-.nuke-end {
+@keyframes burst {
+  0% { transform: scale(0.2); opacity: 1; }
+  100% { transform: scale(14); opacity: 0; }
+}
+
+/* NUKE(D) lifting out of the word box, then turning into cubes */
+.nuke-word { position: fixed; left: 50%; --m: clamp(44px, 12vw, 84px); transform-origin: 50% 50%; }
+.nuke-sub {
   position: absolute;
-  inset: 0;
-  display: grid;
-  place-content: center;
-  justify-items: center;
-  gap: 22px;
-  text-align: center;
-  opacity: 0;
-  transition: opacity 1s ease;
+  left: 50%;
+  top: 72%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  margin: 0;
+  font: clamp(10px, 2.6vw, 14px) var(--font);
+  color: #fff;
+  text-shadow: 3px 3px 0 #5a0000;
+  animation: press-pulse 1.4s ease-in-out infinite;
 }
-.nuke-end.show { opacity: 1; }
-.nuke-title { margin: 0; font: clamp(36px, 10vw, 72px) var(--font); color: #fff; text-shadow: 6px 6px 0 #5a0000; }
-.nuke-sub { margin: 0; font: clamp(10px, 2.6vw, 14px) var(--font); color: #fff; text-shadow: 3px 3px 0 #5a0000; animation: press-pulse 1.4s ease-in-out infinite; }
+
+/* The word box once NUKE is locked in */
+.char.locked { cursor: default !important; color: var(--accent) !important; }
 
 /* Red-themed world after the blast */
 body.nuked { --bg: #4a080c; }
