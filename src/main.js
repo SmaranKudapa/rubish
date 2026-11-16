@@ -331,7 +331,8 @@ async function start(auto = false) {
   document.body.classList.add('focus');
   caption('');
   slideOut(entry);
-  word = { chars: [...text], idx: 0, color, bg: bgColor, auto };
+  const myWord = { chars: [...text], idx: 0, color, bg: bgColor, auto };
+  word = myWord;
   sfx.submit();
   shown = null;
 
@@ -341,6 +342,7 @@ async function start(auto = false) {
     document.body.classList.remove('finale');
     await stage.clearWord();
   }
+  if (word !== myWord || mode !== 'intro') return; // Esc'd home while getting ready
   stage.setSway(0.35);
   beginLetter();
 }

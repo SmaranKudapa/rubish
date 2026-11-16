@@ -416,6 +416,16 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
     render();
   });
 
+  // Ease an fx value to a target. The newest call wins: an older ease still
+  // running stops writing, so (say) a slow shake-up can't outlast the
+  // shake-down that was asked for after it and leave the cube shaking forever.
+  const fxTokens = {};
+  function fxTo(key, to, ms) {
+    const token = (fxTokens[key] = (fxTokens[key] || 0) + 1);
+    const from = fx[key];
+    return tween(ms, (e) => { if (fxTokens[key] === token) fx[key] = from + (to - from) * e; });
+  }
+
   const slotX = (i, n) => (i - (n - 1) / 2) * SPACING;
   const v = new THREE.Vector3();
 
@@ -442,8 +452,8 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
       }
       return best;
     },
-    setSway: (to, ms = 800) => { const from = fx.sway; return tween(ms, (e) => { fx.sway = from + (to - from) * e; }); },
-    setShake: (to, ms = 600) => { const from = fx.shake; return tween(ms, (e) => { fx.shake = from + (to - from) * e; }); },
+    setSway: (to, ms = 800) => fxTo('sway', to, ms),
+    setShake: (to, ms = 600) => fxTo('shake', to, ms),
     pop: () => tween(420, (_, t) => { fx.scale = 1 + Math.sin(Math.PI * t) * 0.06; }, (t) => t),
     // Something hit the cube: it squashes in, wobbles back out and jolts.
     // (In the one-at-a-time solve, the cube on show takes the hit.)
