@@ -498,7 +498,7 @@ export async function runNuke({ stage, physics, title, uiEls, input, target, dat
   Object.assign(cloudCanvas.style, { width: `${cw}px`, height: `${cw}px`, left: `${cx - cw / 2}px`, top: `${floorTop - cw * 0.97}px` });
   const paint = cloudPainter(cloudCanvas);
   const cloudStart = performance.now();
-  const CLOUD_SLOW = 4; // 4x slower than real time
+  const CLOUD_SLOW = 12; // 12x slower than real time
   const animateCloud = (now) => {
     paint((now - cloudStart) / 1000 / CLOUD_SLOW);
     if (back.isConnected) requestAnimationFrame(animateCloud);
@@ -536,35 +536,43 @@ export async function runNuke({ stage, physics, title, uiEls, input, target, dat
   stage.fx.shake = 0;
   await sleep(6900);
 
-  // ...gains a D: its slot opens slowly so NUKE slides over...
+  // ...gains a D. The piece stuck in the glass wrenches free, and as it
+  // spirals in (spinning faster and faster) the D's slot opens at the same
+  // time, NUKE sliding over to make room; the piece lands in the slot and
+  // morphs into the D in a flash. With no stuck piece, the slot opens and the
+  // D spins in by itself.
   const d = cubes[4];
-  d.classList.add('squeezed');
-  word.appendChild(d);
-  void d.offsetWidth;
-  d.classList.remove('squeezed');
-  sound.whoosh?.();
-  await sleep(2100);
-  // ...and the piece stuck in the glass wrenches free, spirals into the slot
-  // spinning faster and faster, and morphs into the D in a flash (or, with no
-  // stuck piece, the D just spins in by itself).
-  const dr = d.getBoundingClientRect();
   const showD = () => {
     d.classList.add('letter-in', 'd-morph');
     d.addEventListener('animationend', () => d.classList.remove('d-morph'), { once: true });
     sound.pop?.();
     sound.blip?.(5);
   };
+  const openSlot = () => {
+    d.classList.add('squeezed');
+    word.appendChild(d);
+    void d.offsetWidth;
+    d.classList.remove('squeezed'); // opens over 2s (CSS)
+  };
+  const SLOT_OPEN = 2000; // matches the slot's CSS transition
   if (stuck) {
     stuck.w.set(0, 0, 9); // a wobble as it's pulled out of the glass
     sound.glass?.();
     await sleep(350);
+    openSlot();
     sound.whoosh?.();
+    // Aim at the slot's middle as it opens (it moves while NUKE slides over).
+    const at = () => d.getBoundingClientRect();
     physics.sendTo(stuck, {
-      x: dr.left + dr.width / 2, y: dr.top + dr.height / 2, size: m * 0.75, dur: 1900, lift: 60,
-      fade: 450, spin: 26, spiral: Math.min(W, H) * 0.16, onArrive: showD,
+      x: () => { const r = at(); return r.left + r.width / 2; },
+      y: () => { const r = at(); return r.top + r.height / 2; },
+      size: m * 0.75, dur: SLOT_OPEN, lift: 60, fade: 450, spin: 26, spiral: Math.min(W, H) * 0.16, onArrive: showD,
     });
-    await sleep(1900);
+    await sleep(SLOT_OPEN);
   } else {
+    openSlot();
+    sound.whoosh?.();
+    await sleep(SLOT_OPEN);
     showD();
   }
   await sleep(2600);
