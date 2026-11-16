@@ -503,7 +503,7 @@ export async function runNuke({ stage, physics, title, uiEls, input, target, dat
         // Past the camera by the left or right side: it ends centered just
         // beyond that edge, so at its biggest only a strip of it covers the side.
         const right = Math.random() < 0.5;
-        size = H * (0.7 + Math.random() * 0.35);
+        size = Math.min(H * (0.7 + Math.random() * 0.35), W * 0.8); // (narrow phone screens too)
         const out = size * (0.18 + Math.random() * 0.15); // how far past the edge its middle ends up
         tx = right ? W + out : -out;
         ty = H * (0.2 + Math.random() * 0.6);
