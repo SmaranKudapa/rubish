@@ -449,57 +449,87 @@ async function beginLetter() {
 // Returns a promise that resolves once the chip is in the cube (right away if
 // it's already gone), so what the key does only happens then.
 function tossKey(btn, label = null) {
-  if (btn.classList.contains('tossed') || btn.closest('[hidden]')) return btn._landed || Promise.resolve();
+  if (btn.classList.contains('tossed') || btn.classList.contains('tossing') || btn.closest('[hidden]')) {
+    return btn._landed || Promise.resolve();
+  }
   const src = btn.querySelector('kbd') || btn.querySelector('span') || btn;
   const r = src.getBoundingClientRect();
   btn.classList.remove('hint-in');
-  btn.classList.add('tossed');
-  if (REDUCED || !r.width) return (btn._landed = Promise.resolve());
+  if (REDUCED || !r.width) {
+    btn.classList.add('tossed');
+    return (btn._landed = Promise.resolve());
+  }
+  // The chip lifts out of the hint; the rest of it ("to skip") stays until the chip jumps off.
+  btn.classList.add('tossing');
   const chip = document.createElement('div');
   chip.className = 'kbd-toss';
   chip.textContent = src.textContent;
   Object.assign(chip.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
   document.body.appendChild(chip);
   const c = $('cube').getBoundingClientRect();
-  const x0 = r.left + r.width / 2, y0 = r.top + r.height / 2;
+  let x0 = r.left + r.width / 2;
+  const y0 = r.top + r.height / 2;
   const x1 = c.left + c.width / 2, y1 = c.top + c.height / 2;
   const lift = 110 + Math.abs(y0 - y1) * 0.35; // how high it arcs above the straight line
   const spin = (Math.random() < 0.5 ? -1 : 1) * (420 + Math.random() * 300);
-  // A label (Shift+Enter): the chip first stretches out sideways to show it.
-  const w0 = r.width;
+  // A label (Shift+Enter): the chip first struggles to stretch out to show it,
+  // growing to the left (its right edge stays put, so "to skip" stays readable).
+  const w0 = r.width, right = r.right;
   let w1 = w0;
   if (label) {
     chip.textContent = label;
     chip.style.width = 'auto';
     w1 = Math.max(w0, chip.offsetWidth + 4);
     chip.style.width = `${w0}px`;
-    sfx.tick(0.3);
   }
-  const STRETCH = label ? 300 : 0, CROUCH = 100, FLY = 740;
+  const STRETCH = label ? 2000 : 0, CROUCH = 100, FLY = 740;
   const TOTAL = STRETCH + CROUCH + FLY;
   const PREP = (STRETCH + CROUCH) / TOTAL;
-  let launched = false;
+  const PULL = 0.86; // most of the stretch is the struggle; then it snaps open
+  let launched = false, snapped = false;
+  if (label) sfx.stretch(STRETCH * PULL / 1000);
   return (btn._landed = tween(TOTAL, (_, t) => {
     const ms = t * TOTAL;
     if (ms < STRETCH) {
-      // Stretch out from the middle (with a little overshoot), revealing the label.
       const p = ms / STRETCH;
-      const e = 1 + 2.2 * (p - 1) ** 3 + 1.2 * (p - 1) ** 2;
+      let e, strain;
+      if (p < PULL) {
+        // Heaving in jerky pulls that slip back a little each time, getting
+        // most of the way there, trembling harder and harder.
+        const q = p / PULL;
+        e = 0.78 * (q + 0.05 * (1 + Math.sin(8 * Math.PI * q - Math.PI / 2)));
+        strain = q;
+      } else {
+        // ...and then it gives: snaps the rest of the way out.
+        if (!snapped) { snapped = true; sfx.snap(); }
+        e = 0.78 + 0.22 * easeOutBack((p - PULL) / (1 - PULL));
+        strain = 0;
+      }
       const w = w0 + (w1 - w0) * e;
       chip.style.width = `${w}px`;
-      chip.style.left = `${x0 - w / 2}px`;
+      chip.style.left = `${right - w}px`;
+      const shake = 3.2 * strain * (0.35 + strain);
+      const jx = (Math.random() - 0.5) * shake, jy = (Math.random() - 0.5) * shake * 0.6;
+      // Thins out as it's pulled, and flushes a little pink from the effort.
+      chip.style.transform = `translate(${jx}px, ${jy}px) scale(1, ${1 - 0.22 * strain * Math.min(1, e / 0.78)})`;
+      const flush = Math.round(60 * strain);
+      chip.style.background = `rgb(255, ${255 - flush}, ${255 - flush})`;
       return;
     }
     if (t < PREP) {
       const p = Math.sin(((ms - STRETCH) / CROUCH) * Math.PI / 2);
       chip.style.width = `${w1}px`;
-      chip.style.left = `${x0 - w1 / 2}px`;
+      chip.style.left = `${right - w1}px`;
+      chip.style.background = '';
+      x0 = right - w1 / 2; // fly from wherever its middle ended up
       chip.style.transform = `translateY(${p * 3}px) scale(${1 + 0.32 * p}, ${1 - 0.4 * p})`;
       return;
     }
     if (!launched) {
-      // Jumps out: a little impact where it left from.
+      // Jumps out: a little impact where it left from, and the rest of the hint goes.
       launched = true;
+      btn.classList.add('tossed');
+      btn.classList.remove('tossing');
       impactFx(x0, y0, { size: 0.8, shards: 6, reach: 26 });
       const row = btn.parentElement;
       row.classList.remove('knock');
@@ -546,9 +576,9 @@ function impactFx(x, y, { size = 1, shards = 8, reach = 60 } = {}) {
 }
 // A new letter or cube: the hint pops back in.
 function showHint(btn) {
-  if (!btn.classList.contains('tossed')) return;
+  if (!btn.classList.contains('tossed') && !btn.classList.contains('tossing')) return;
   btn._landed = null;
-  btn.classList.remove('tossed');
+  btn.classList.remove('tossed', 'tossing');
   btn.classList.remove('hint-in');
   void btn.offsetWidth;
   btn.classList.add('hint-in');

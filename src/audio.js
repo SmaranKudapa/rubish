@@ -123,6 +123,47 @@ export const sfx = {
     noise({ dur: 1.0, vol: 0.45, freq: 2400, to: 60, q: 0.6, type: 'lowpass' });
     tone({ type: 'triangle', freq: 140, to: 35, dur: 0.6, vol: 0.35 });
   },
+  // A rubbery chip straining to stretch: a creaky, wobbling buzz that climbs
+  // in pitch and trembles faster as the strain builds.
+  stretch(dur = 1.7) {
+    if (!ready()) return;
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(80, t);
+    o.frequency.linearRampToValueAtTime(140, t + dur * 0.5);
+    o.frequency.linearRampToValueAtTime(240, t + dur);
+    const lfo = ctx.createOscillator(); // the wobble
+    lfo.frequency.setValueAtTime(6, t);
+    lfo.frequency.linearRampToValueAtTime(17, t + dur);
+    const depth = ctx.createGain();
+    depth.gain.value = 10;
+    lfo.connect(depth).connect(o.frequency);
+    const f = ctx.createBiquadFilter();
+    f.type = 'lowpass';
+    f.Q.value = 7;
+    f.frequency.setValueAtTime(450, t);
+    f.frequency.linearRampToValueAtTime(1500, t + dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.06, t + 0.1);
+    g.gain.setValueAtTime(0.06, t + dur - 0.05);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.03);
+    const trem = ctx.createOscillator(); // the strain: a quick flutter in volume
+    trem.frequency.setValueAtTime(14, t);
+    trem.frequency.linearRampToValueAtTime(28, t + dur);
+    const tremDepth = ctx.createGain();
+    tremDepth.gain.setValueAtTime(0, t);
+    tremDepth.gain.linearRampToValueAtTime(0.03, t + dur);
+    trem.connect(tremDepth).connect(g.gain);
+    o.connect(f).connect(g).connect(master);
+    for (const n of [o, lfo, trem]) { n.start(t); n.stop(t + dur + 0.06); }
+  },
+  // ...and it gives: a quick springy snap.
+  snap() {
+    tone({ freq: 320, to: 1150, dur: 0.09, vol: 0.09 });
+    tone({ type: 'triangle', freq: 200, to: 90, dur: 0.12, vol: 0.1, delay: 0.02 });
+  },
   // Something small slamming into the cube: a heavy thump with a crunch.
   impact() {
     tone({ type: 'triangle', freq: 190, to: 45, dur: 0.28, vol: 0.32 });

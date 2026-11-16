@@ -615,6 +615,9 @@ body.no-cursor, body.no-cursor * { cursor: none !important; }
 /* Used: the key chip has been tossed into the cube; the rest fades until usable */
 .skip.tossed { opacity: 0 !important; pointer-events: none; transition: opacity 0.25s ease; }
 .skip.tossed kbd { visibility: hidden; }
+/* The chip has lifted out (it's getting ready to jump); the rest of the hint stays */
+.skip.tossing { pointer-events: none; }
+.skip.tossing kbd { visibility: hidden; }
 .skip.hint-in { animation: hint-in 0.45s var(--spring); }
 @keyframes hint-in { from { opacity: 0; transform: scale(0.4); } }
 /* Where the chip jumps out of: the hint row takes a little knock */
