@@ -572,6 +572,7 @@ export async function runNuke({ stage, physics, title, uiEls, input, target, dat
   stage.fx.shake = 0.35;
   await sleep(3000);
   await glassHit;
+  await sleep(1000); // a beat after the crack before the box drops
 
   // ...then floats out of the box to the middle of the screen as plain text,
   // and the empty box falls away.
