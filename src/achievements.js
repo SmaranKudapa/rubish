@@ -44,6 +44,19 @@ function trefoil() {
 
 const ICONS = {
   nuke: trefoil(),
+  dizzy: [
+    'kkkkkkkkkkkk',
+    'kwwwwwwwwwwk',
+    'kwkwkwwkwkwk',
+    'kwwkwwwwkwwk',
+    'kwkwkwwkwkwk',
+    'kwwwwwwwwwwk',
+    'kwwwwwwwwwwk',
+    'kwwwkkkkwwwk',
+    'kwwkwwwwkwwk',
+    'kwwwwwwwwwwk',
+    'kkkkkkkkkkkk',
+  ],
   cake: [
     '..y...y...y.',
     '..o...o...o.',
@@ -116,6 +129,7 @@ export const ACHIEVEMENTS = [
   { id: 'kaboom', icon: 'boom', title: 'ZOOM BOOM', desc: 'Zoom into a cube until it bursts apart.', secret: true },
   { id: 'copycat', icon: 'twins', title: 'CLONE', desc: 'Click a flying cube to clone it.', secret: true },
   { id: 'nuke', icon: 'nuke', title: 'NUKE', desc: 'Send in a nuke by typing nuke.', secret: true },
+  { id: 'non-cuber', icon: 'dizzy', title: 'NON CUBER', desc: 'ZOOM BOOM a cube 5 times in a row while learning a letter.', secret: true },
   { id: 'birthday', icon: 'cake', title: 'HAPPY BIRTHDAY', desc: 'Play Happy Birthday on the color squares.', secret: true },
 ];
 

@@ -36,7 +36,14 @@ const stage = createStage($('cube'), cube, {
   onShatter: (pieces, { byZoom } = {}) => {
     physics.shatter(pieces);
     sfx.explode();
-    if (byZoom) ach.unlock('kaboom');
+    if (byZoom) {
+      ach.unlock('kaboom');
+      // NON CUBER: five zoom-booms in a row while learning a letter.
+      if (mode === 'steps' || mode === 'intro') {
+        zoomStreak++;
+        if (zoomStreak >= 5) ach.unlock('non-cuber');
+      }
+    }
     const cx = pieces.reduce((a, p) => a + p.x, 0) / pieces.length;
     const cy = pieces.reduce((a, p) => a + p.y, 0) / pieces.length;
     boom(cx, cy);
@@ -86,6 +93,7 @@ let word = null; // { chars, idx, color, bg }
 let job = null; // { ch, hold, moves, step }
 let shown = null; // the finished word on the start page: { chars, cubes }
 let recolorToken = 0;
+let zoomStreak = 0; // zoom-booms in a row during the current letter (NON CUBER)
 let loopToken = 0;
 let loopPromise = Promise.resolve();
 
@@ -326,6 +334,7 @@ async function beginLetter() {
   const ch = word.chars[word.idx];
   const hold = holdFor(data[ch], word.color, word.bg);
   const myJob = { ch, hold, moves: hold.moves, step: 0, finish: !!word.auto };
+  zoomStreak = 0; // new letter, new streak
   job = myJob;
   const alive = () => mode === 'intro' && job === myJob;
   nextBtn.disabled = true;
@@ -355,6 +364,7 @@ function next() {
   if (mode !== 'steps' || job.step + queued >= job.moves.length) return;
   press();
   sfx.step();
+  zoomStreak = 0; // took a step: the streak is broken
   queued++;
   if (!running) runQueue();
 }
