@@ -119,6 +119,11 @@ export const sfx = {
     tone({ type: 'triangle', freq: 500 + Math.random() * 500, dur: 0.035, vol: 0.015 + v * 0.05 });
   },
   pop() { tone({ freq: 500, to: 1300, dur: 0.08, vol: 0.08 }); },
+  // Achievement unlocked: a bright little coin-and-sparkle jingle.
+  achievement() {
+    [[83, 0], [88, 0.09], [91, 0.18], [95, 0.27]].forEach(([n, t]) => tone({ freq: NOTE(n), dur: n === 95 ? 0.35 : 0.08, vol: 0.08, delay: t }));
+    tone({ type: 'triangle', freq: NOTE(59), dur: 0.4, vol: 0.1, delay: 0.27 });
+  },
 };
 
 // True once the browser actually lets us play sound.
