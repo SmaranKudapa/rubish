@@ -41,6 +41,8 @@ let color = 'red'; // letter color
 let bgColor = 'white'; // background color
 let word = null; // { chars, idx, color, bg }
 let job = null; // { ch, hold, moves, step }
+let shown = null; // the finished word on the start page: { chars, cubes }
+let recolorToken = 0;
 let loopToken = 0;
 let loopPromise = Promise.resolve();
 
@@ -80,6 +82,34 @@ function setColors(letter, bg) {
   // The background can't match the letter.
   for (const b of $('swatches-bg').children) b.disabled = b.dataset.color === letter;
   if (changed && mode === 'landing') restartLoop();
+  if (changed && mode === 'done' && shown) recolorWord();
+}
+
+const randomMove = () => FACES[Math.floor(Math.random() * 6)] + ['', "'", '2'][Math.floor(Math.random() * 3)];
+
+// On the start page with a finished word: when the colors change, every cube
+// scrambles, solves itself, and re-forms its letter in the new colors, one
+// after another. A newer color change cancels the one in progress.
+async function recolorWord() {
+  const token = ++recolorToken;
+  const alive = () => mode === 'done' && token === recolorToken;
+  const { chars, cubes } = shown;
+  await Promise.all(cubes.map(async (c, i) => {
+    await sleep(i * 140, alive);
+    if (!alive()) return;
+    await c.queue;
+    for (let k = 0; k < 8; k++) {
+      if (!alive()) return;
+      await c.turn(randomMove(), speed(55), linear);
+    }
+    if (!(await c.solve(speed(38), linear, alive))) return;
+    const hold = holdFor(data[chars[i]], color, bgColor);
+    if (!(await c.reorient(hold.front, hold.top, speed(220), easeInOutCubic, alive))) return;
+    for (const m of hold.moves) {
+      if (!alive()) return;
+      await c.turn(m, speed(45), linear);
+    }
+  }));
 }
 setColors(color, bgColor);
 
@@ -181,8 +211,10 @@ async function start() {
   caption('');
   slideOut(entry);
   word = { chars: [...text], idx: 0, color, bg: bgColor };
+  shown = null;
 
   await loopPromise;
+  await cube.queue; // let a recolor's current turn finish
   if (stage.hasWord()) {
     document.body.classList.remove('finale');
     await stage.clearWord();
@@ -313,6 +345,7 @@ async function finale() {
   }
   await stage.showWord(earlier);
   if (mode !== 'finale') return;
+  shown = { chars: word.chars, cubes: [...earlier, cube] };
   mode = 'done';
   document.body.classList.remove('focus');
   input.value = '';
