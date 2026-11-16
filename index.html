@@ -48,12 +48,14 @@
       <section id="entry" class="entry">
         <form id="form" class="entry-row" autocomplete="off">
           <input id="char" class="char" maxlength="12" inputmode="text" autocapitalize="characters" spellcheck="false" placeholder="TYPE HERE" aria-label="Word, letters A to Z" autofocus />
-          <button id="go" class="go" type="submit" aria-label="Next">&gt;</button>
+          <div class="go-col">
+            <button id="go" class="go" type="submit" aria-label="Next">&gt;</button>
+            <!-- After a word: walk through solving its cubes, step by step -->
+            <button id="solve" class="solve" type="button" hidden>SOLVE</button>
+          </div>
         </form>
         <div id="swatches" class="swatches" role="radiogroup" aria-label="Letter color"></div>
         <div id="swatches-bg" class="swatches" role="radiogroup" aria-label="Background color"></div>
-        <!-- After a word: walk through solving its cubes, step by step -->
-        <button id="solve" class="solve" type="button" hidden>SOLVE</button>
       </section>
 
       <!-- Step player: only the next-step button -->

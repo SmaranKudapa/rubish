@@ -549,36 +549,42 @@ async function startSolve() {
   document.body.classList.add('focus');
   slideOut(entry);
   word = null;
-  const s = { chars: shown.chars, cubes: shown.cubes, idx: 0, auto: false };
+  const s = { chars: shown.chars, cubes: shown.cubes, order: [], pos: 0, auto: false };
   solving = s;
   sfx.submit();
   nextBtn.disabled = true;
   show(steps, true);
   await Promise.all(s.cubes.map((c) => c.queue)); // let any turn in flight finish
+  if (solving !== s) return;
+  // The cubes to solve, left to right (skipping solved or blown-up ones).
+  const onStage = stage.cubes();
+  s.order = s.cubes.map((c, i) => i).filter((i) => s.cubes[i].history.length && onStage.includes(s.cubes[i]));
+  if (!s.order.length) return solvedAll();
+  await stage.soloStart(s.order[0]); // just the first cube, in the middle
   if (solving === s) solveNext();
 }
 
 async function solveNext() {
   const s = solving;
   if (!s) return;
-  // Skip cubes that are already solved or blown up.
-  const onStage = stage.cubes();
-  while (s.idx < s.cubes.length && (!s.cubes[s.idx].history.length || !onStage.includes(s.cubes[s.idx]))) s.idx++;
-  if (s.idx >= s.cubes.length) return solvedAll();
+  if (s.pos >= s.order.length) return solvedAll();
   mode = 'intro';
-  const c = s.cubes[s.idx];
+  const idx = s.order[s.pos];
+  const c = s.cubes[idx];
   const myJob = {
-    ch: s.chars[s.idx], cube: c, moves: [...c.history].reverse().map(invertMove),
+    ch: s.chars[idx], cube: c, moves: [...c.history].reverse().map(invertMove),
     step: 0, finish: s.auto, solving: true,
   };
   job = myJob;
   zoomStreak = 0;
-  stage.focusSlot(s.idx);
-  flash(myJob.ch);
   caption('');
   nextBtn.disabled = true;
   const alive = () => mode === 'intro' && job === myJob;
-  await sleep(speed(600), alive);
+  // The next cube comes in from the right and knocks the solved one off.
+  if (s.pos > 0) await stage.soloNext(idx, () => sfx.thud());
+  if (!alive()) return;
+  flash(myJob.ch);
+  await sleep(speed(500), alive);
   if (!alive()) return;
   mode = 'steps';
   nextBtn.disabled = false;
@@ -591,10 +597,10 @@ async function cubeSolved() {
   const s = solving;
   caption('');
   nextBtn.disabled = true;
-  sfx.thud();
-  await stage.popSlot(s.idx);
+  sfx.blip(4);
+  await stage.popSlot(s.order[s.pos]);
   if (mode !== 'celebrate' || solving !== s) return;
-  s.idx++;
+  s.pos++;
   solveNext();
 }
 
@@ -603,7 +609,6 @@ async function cubeSolved() {
 async function solvedAll() {
   mode = 'celebrate';
   const s = solving;
-  stage.focusSlot(null);
   flash('');
   caption('');
   show(steps, false);
@@ -640,7 +645,6 @@ function goHome() {
     solving = null;
     shown = null;
     solveBtn.hidden = true;
-    stage.focusSlot(null);
     document.body.classList.remove('finale');
     loopPromise = loopPromise.then(() => stage.clearWord());
   }

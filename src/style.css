@@ -332,22 +332,26 @@ body.finale .stage { max-width: 1100px; }
 
 
 /* ---------- Step player: just the button ---------- */
-/* SOLVE: shown on the start page under a finished word */
+/* > and, under a finished word, SOLVE: the > button splits in half heightwise */
+.go-col { flex: none; display: flex; flex-direction: column; gap: 10px; width: 72px; height: 72px; }
+.go-col .go { width: 100%; height: auto; flex: 1; min-height: 0; }
+.go-col:has(.solve:not([hidden])) .go { font-size: 16px; padding-left: 2px; }
 .solve {
-  width: var(--row);
-  max-width: 100%;
-  height: 56px;
-  font: 14px var(--font);
+  flex: 1;
+  min-height: 0;
+  padding: 0;
+  font: 9px var(--font);
   background: var(--accent);
   color: var(--accent-ink);
   border: var(--px) solid var(--ink);
   box-shadow: 6px 6px 0 var(--ink);
   cursor: pointer;
-  transition: transform 0.65s var(--smooth), opacity 0.5s ease, box-shadow 0.12s ease, background-color 0.3s ease, filter 0.2s ease;
+  animation: solve-in 0.35s var(--spring);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.3s ease, filter 0.2s ease;
 }
 .solve:hover { filter: brightness(1.08); }
 .solve:active { transform: translate(6px, 6px); box-shadow: 0 0 0 var(--ink); }
-.solve:hover, .solve:active { transition-delay: 0s; } /* not the entry's slide-in stagger */
+@keyframes solve-in { from { transform: scaleY(0); opacity: 0; } }
 
 .steps { opacity: 0; transform: translateY(16px); transition: opacity 0.4s ease, transform 0.5s var(--spring); }
 .steps.show { opacity: 1; transform: none; }
@@ -548,6 +552,9 @@ html { touch-action: manipulation; } /* no double-tap zoom */
   .entry { gap: 12px; }
   .char, .go { height: 52px; }
   .go { width: 52px; font-size: 22px; }
+  .go-col { width: 52px; height: 52px; gap: 8px; }
+  .go-col:has(.solve:not([hidden])) .go { font-size: 12px; }
+  .solve { font-size: 7px; }
   .swatch { width: 32px; height: 32px; }
   .swatches + .swatches { margin-top: 2px; }
   .next { padding: 12px 18px; }

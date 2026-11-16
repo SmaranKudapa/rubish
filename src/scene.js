@@ -119,7 +119,7 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
   const targetZ = () => {
     let d = 13.5 / Math.min(1, aspect * 1.1);
     if (word) {
-      const half = ((word.n - 1) / 2) * SPACING + 3;
+      const half = (((word.view ?? word.n) - 1) / 2) * SPACING + 3;
       d = Math.max(d, half / (TAN15 * aspect));
     }
     return d;
@@ -391,12 +391,9 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
         const local = t - word.start - i * 0.15;
         const l = local > 0 ? local % 4.5 : 99;
         // (paused while the word is being solved, so the moves are easy to follow)
-        const spin = l < 1.2 && !fx.armHold && word.focus == null ? easeInOutCubic(l / 1.2) * Math.PI * 2 : 0;
+        const spin = l < 1.2 && !fx.armHold && word.solo == null ? easeInOutCubic(l / 1.2) * Math.PI * 2 : 0;
         sl.g.rotation.set(SLOT_TILT[0] + sl.drag.x, SLOT_TILT[1] + sl.drag.y + spin + (sl.roll || 0), 0);
-        // Solving: the cube being solved swells a little, the others shrink back.
-        const hi = word.focus == null ? 0 : i === word.focus ? 1 : -1;
-        sl.hi = (sl.hi || 0) + (hi - (sl.hi || 0)) * (1 - Math.exp(-dt * 6));
-        sl.g.scale.setScalar(1 + (sl.pop || 0) + sl.hi * 0.14);
+        sl.g.scale.setScalar(1 + (sl.pop || 0));
       });
     }
 
@@ -463,8 +460,56 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
 
     hasWord: () => !!word,
 
-    // Solving the word: highlight the cube in slot i (null: none).
-    focusSlot(i) { if (word) word.focus = i; },
+    // Solving the word, one cube at a time: the cube in slot i moves to the
+    // middle and the camera closes in on it; the rest wait off the right edge.
+    async soloStart(i) {
+      const w = word;
+      if (!w) return;
+      w.solo = i;
+      w.view = 1;
+      const amp0 = w.amp;
+      tween(500, (e) => { w.amp = amp0 * (1 - e); });
+      const offR = screenEdges(Math.max(camZ, targetZ())).right + CUBE_HALF * 3;
+      await Promise.all(w.slots.map((sl, k) => {
+        if (!sl) return null;
+        const x0 = sl.g.position.x, x1 = k === i ? 0 : offR;
+        return wait(k === i ? 0 : 80 * k).then(() => tween(k === i ? 1000 : 700, (e) => { sl.g.position.x = x0 + (x1 - x0) * e; },
+          k === i ? easeInOutCubic : easeInCubic));
+      }));
+    },
+    // The cube in slot i rolls in from the right and knocks the one on show
+    // off through the left side. onHit fires at the moment they collide.
+    async soloNext(i, onHit) {
+      const w = word;
+      if (!w) return;
+      const cur = w.slots[w.solo];
+      const nx = w.slots[i];
+      const edges = screenEdges(camZ);
+      const offR = edges.right + CUBE_HALF * 3, offL = edges.left - CUBE_HALF * 3;
+      nx.g.position.x = offR;
+      sound.whoosh?.();
+      let knock = null;
+      await tween(800, (e) => {
+        nx.g.position.x = offR * (1 - e);
+        nx.roll = (1 - e) * Math.PI * 2; // spins as it comes in
+        if (!knock && cur && nx.g.position.x - cur.g.position.x < CUBE_HALF * 2.3) {
+          onHit?.();
+          const x0 = cur.g.position.x;
+          knock = tween(750, (q, t) => {
+            cur.g.position.x = x0 + (offL - x0) * q;
+            cur.y = Math.sin(Math.PI * t) * 1.4; // a little arc as it flies
+            cur.roll = -q * Math.PI * 3; // tumbling away
+          }, (t) => 1 - (1 - t) ** 3).then(() => {
+            cur.g.parent?.remove(cur.g);
+            const k = w.slots.indexOf(cur);
+            if (k >= 0 && !cur.main) w.slots[k] = null;
+          });
+        }
+      }, (t) => 1 - (1 - t) ** 2);
+      nx.roll = 0;
+      await knock;
+      w.solo = i;
+    },
     // A quick swell of the cube in slot i (it just got solved).
     popSlot(i) {
       const sl = word?.slots[i];
