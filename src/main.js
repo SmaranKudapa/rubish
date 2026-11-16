@@ -90,7 +90,20 @@ let loopToken = 0;
 let loopPromise = Promise.resolve();
 
 // ---------- Color swatches: letter color, then background color ----------
-function swatchRow(el, onPick) {
+// The squares double as a little keyboard: top row C D E F G A, bottom row
+// B C D E F G an octave up. Playing the start of a certain tune unlocks a secret.
+const NOTES_TOP = [60, 62, 64, 65, 67, 69];
+const NOTES_BOTTOM = [71, 72, 74, 76, 77, 79];
+const TUNE = [67, 67, 69, 67, 72, 71, 67, 67, 69, 67, 74, 72]; // Happy Birthday, first two lines
+const played = [];
+function playNote(n) {
+  sfx.note(n);
+  played.push(n);
+  if (played.length > TUNE.length) played.shift();
+  if (played.length === TUNE.length && played.every((v, i) => v === TUNE[i])) ach.unlock('birthday');
+}
+
+function swatchRow(el, notes, onPick) {
   for (const c of COLOR_ORDER) {
     const b = document.createElement('button');
     b.type = 'button';
@@ -99,12 +112,12 @@ function swatchRow(el, onPick) {
     b.setAttribute('role', 'radio');
     b.setAttribute('aria-label', c);
     b.dataset.color = c;
-    b.onclick = () => { sfx.blip(COLOR_ORDER.indexOf(c)); onPick(c); };
+    b.onclick = () => { playNote(notes[COLOR_ORDER.indexOf(c)]); onPick(c); };
     el.appendChild(b);
   }
 }
-swatchRow($('swatches'), (c) => setColors(c, c === bgColor ? color : bgColor));
-swatchRow($('swatches-bg'), (c) => { if (c !== color) setColors(color, c); });
+swatchRow($('swatches'), NOTES_TOP, (c) => setColors(c, c === bgColor ? color : bgColor));
+swatchRow($('swatches-bg'), NOTES_BOTTOM, (c) => { if (c !== color) setColors(color, c); });
 
 function setColors(letter, bg) {
   const changed = letter !== color || bg !== bgColor;
@@ -283,9 +296,9 @@ async function launchNuke() {
   caption('');
   const uiEls = [
     ...document.querySelectorAll('#swatches .swatch, #swatches-bg .swatch'),
-    $('char'), $('go'), $('mute'), $('ach-btn'), $('caption'),
+    $('char'), $('go'), $('mute'), $('caption'),
   ];
-  await runNuke({ stage, physics, title, uiEls, input, data, sound: sfx, canHover, onImpact: () => ach.unlock('nuke') });
+  await runNuke({ stage, physics, title, uiEls, input, target: $('ach-btn'), data, sound: sfx, canHover, onImpact: () => ach.unlock('nuke') });
 }
 
 // Scramble hard while shaking, then solve back to a clean cube, still shaking

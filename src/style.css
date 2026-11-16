@@ -595,19 +595,6 @@ body.no-cursor, body.no-cursor * { cursor: none !important; }
   background: radial-gradient(ellipse at center, transparent 35%, rgba(110, 0, 0, 0.9) 100%);
   opacity: 0;
 }
-.nuke-warning {
-  position: absolute;
-  top: 16%;
-  left: 50%;
-  transform: translateX(-50%);
-  font: clamp(16px, 4vw, 26px) var(--font);
-  color: #fff;
-  text-shadow: 4px 4px 0 #7a0000;
-  white-space: nowrap;
-  opacity: 0;
-}
-.nuke-warning.on { animation: warn-blink 0.8s ease-in-out infinite; }
-@keyframes warn-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.15; } }
 .nuke-sprite { position: absolute; left: 0; top: 0; image-rendering: pixelated; will-change: transform; }
 .nuke-flash { position: absolute; inset: 0; background: #fff; opacity: 0; }
 /* Animated mushroom cloud, behind the whole page (but above the floor) */
@@ -670,3 +657,10 @@ html:has(body.nuked), body.nuked { overflow: hidden; } /* falling UI must not ad
   75% { transform: translate(-4px, -5px); }
   100% { transform: translate(5px, -3px); }
 }
+
+/* 3D missile canvas, and the slower NUKED letter animations */
+.nuke-3d { position: absolute; inset: 0; width: 100%; height: 100%; }
+.nuke-word.intro .mini-letter { transition: opacity 1.75s ease, transform 2.5s var(--spring); }
+.nuke-word.intro .mini-shake { transition: opacity 1.75s ease, transform 3s var(--spring); }
+.nuke-word.intro .mini.cube-in .mini-letter { transition: opacity 1.5s ease, transform 2s ease; }
+.nuke-word.instant .mini-letter, .nuke-word.instant .mini-shake { transition: none !important; }
