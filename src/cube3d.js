@@ -4,13 +4,14 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 
+// Classic Rubik's colors.
 export const PALETTE = {
-  white: '#f4f4ee',
-  yellow: '#ffd21f',
-  red: '#e8112d',
-  orange: '#ff7a00',
-  green: '#00b357',
-  blue: '#1060ff',
+  white: '#ffffff',
+  yellow: '#ffd500',
+  red: '#c41e3a',
+  orange: '#ff5800',
+  green: '#009e60',
+  blue: '#0051ba',
 };
 export const COLOR_ORDER = ['red', 'orange', 'yellow', 'green', 'blue', 'white'];
 
@@ -126,14 +127,14 @@ export class RubiksCube {
     this.queue = Promise.resolve();
     this.materials = {};
     for (const name of COLOR_ORDER) {
-      this.materials[name] = new THREE.MeshPhysicalMaterial({
-        color: PALETTE[name], roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.1,
-        emissive: PALETTE[name], emissiveIntensity: 0,
+      // Matte, flat-shaded stickers: a classic 80s cube, not a glossy speedcube.
+      this.materials[name] = new THREE.MeshLambertMaterial({
+        color: PALETTE[name], emissive: PALETTE[name], emissiveIntensity: 0, flatShading: true,
       });
     }
-    const body = new THREE.MeshStandardMaterial({ color: 0x0b0b10, roughness: 0.5, metalness: 0.15 });
-    const box = new RoundedBoxGeometry(0.98, 0.98, 0.98, 4, 0.11);
-    const sticker = roundedRect(0.82, 0.13);
+    const body = new THREE.MeshLambertMaterial({ color: 0x111111, flatShading: true });
+    const box = new RoundedBoxGeometry(0.99, 0.99, 0.99, 1, 0.02);
+    const sticker = roundedRect(0.86, 0.04);
     const zAxis = new THREE.Vector3(0, 0, 1);
     for (let x = -1; x <= 1; x++) for (let y = -1; y <= 1; y++) for (let z = -1; z <= 1; z++) {
       if (!x && !y && !z) continue;
@@ -144,7 +145,7 @@ export class RubiksCube {
         if ((d[0] && d[0] !== x) || (d[1] && d[1] !== y) || (d[2] && d[2] !== z)) continue;
         const n = new THREE.Vector3(...d);
         const s = new THREE.Mesh(sticker, this.materials[HOME[f]]);
-        s.position.copy(n).multiplyScalar(0.493);
+        s.position.copy(n).multiplyScalar(0.5);
         s.quaternion.setFromUnitVectors(zAxis, n);
         s.userData = { normal: n, color: HOME[f] };
         c.add(s);

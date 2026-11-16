@@ -1,7 +1,9 @@
-// Three.js renderer for the cube: lighting, idle sway, and celebration effects.
+// Three.js renderer for the cube: flat retro lighting, chunky pixels,
+// idle sway, and the celebration spin.
 import * as THREE from 'three';
-import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { easeInOutCubic } from './cube3d.js';
+
+const PIXEL = 3; // CSS pixels per rendered pixel
 
 export function tween(duration, fn, ease = easeInOutCubic) {
   return new Promise((resolve) => {
@@ -17,21 +19,16 @@ export function tween(duration, fn, ease = easeInOutCubic) {
 }
 
 export function createStage(container, cube) {
-  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.toneMapping = THREE.NeutralToneMapping;
-  renderer.toneMappingExposure = 1;
+  const renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true });
+  renderer.setPixelRatio(1 / PIXEL);
+  renderer.toneMapping = THREE.NoToneMapping;
   container.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-  scene.environmentIntensity = 0.55;
-
   const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 100);
-  const key = new THREE.DirectionalLight(0xffffff, 1.6);
-  key.position.set(5, 7, 9);
-  scene.add(key, new THREE.AmbientLight(0xffffff, 0.3));
+  const key = new THREE.DirectionalLight(0xffffff, 1.9);
+  key.position.set(3, 8, 6);
+  scene.add(key, new THREE.AmbientLight(0xffffff, 1.5));
 
   // holder: tilt + idle sway. cube.group: spins/scales during celebrations.
   const holder = new THREE.Group();
@@ -73,7 +70,7 @@ export function createStage(container, cube) {
         tween(1500, (_, t) => {
           fx.scale = 1 + Math.sin(Math.PI * t) * 0.16;
           fx.lift = Math.sin(Math.PI * t) * 0.6;
-          fx.glow = Math.sin(Math.PI * t) * 0.85;
+          fx.glow = Math.sin(Math.PI * t) * 0.5;
         }, (t) => t),
       ]);
       cube.group.rotation.y = 0;
