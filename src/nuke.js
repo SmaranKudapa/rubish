@@ -481,7 +481,7 @@ export async function runNuke({ stage, physics, title, uiEls, input, target, dat
     physics.sendTo(p, {
       x: cx2, y: cy2, size: Math.min(W, H) * 0.15, dur: DUR, lift: 0, stay: true, freeze: true,
       ease: (t) => 1 - (1 - t) ** 2.6,
-      sizeEase: (t) => t ** 1.3, // steady growth you can watch, picking up a little at the end
+      sizeEase: (t) => t * t, // grows quadratically: slowly at first, ballooning as it gets close
       onArrive: () => { crackScreen(cx2, cy2); sound.glass?.(); stuck = p; },
     });
   }, 1500);
