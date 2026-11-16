@@ -447,17 +447,18 @@ async function beginLetter() {
 // hint and gets tossed into the cube, and the rest of the hint fades away. It
 // stays gone until the next letter or cube brings the hints back.
 // Returns a promise that resolves once the chip is in the cube (right away if
-// it's already gone), so what the key does only happens then.
+// it's already gone), so what the key does only happens then. It resolves
+// false if a Shift+Enter stretch was let go of before it finished.
 function tossKey(btn, label = null) {
   if (btn.classList.contains('tossed') || btn.classList.contains('tossing') || btn.closest('[hidden]')) {
-    return btn._landed || Promise.resolve();
+    return btn._landed || Promise.resolve(true);
   }
   const src = btn.querySelector('kbd') || btn.querySelector('span') || btn;
   const r = src.getBoundingClientRect();
-  btn.classList.remove('hint-in');
+  btn.classList.remove('hint-in', 'shift-ready', 'relax');
   if (REDUCED || !r.width) {
     btn.classList.add('tossed');
-    return (btn._landed = Promise.resolve());
+    return (btn._landed = Promise.resolve(true));
   }
   // The chip lifts out of the hint; the rest of it ("to skip") stays until the chip jumps off.
   btn.classList.add('tossing');
@@ -470,8 +471,10 @@ function tossKey(btn, label = null) {
   let x0 = r.left + r.width / 2;
   const y0 = r.top + r.height / 2;
   const x1 = c.left + c.width / 2, y1 = c.top + c.height / 2;
-  const lift = 110 + Math.abs(y0 - y1) * 0.35; // how high it arcs above the straight line
-  const spin = (Math.random() < 0.5 ? -1 : 1) * (420 + Math.random() * 300);
+  // Shift+Enter (a label) is the big version: everything after the stretch hits harder.
+  const big = !!label;
+  const lift = (110 + Math.abs(y0 - y1) * 0.35) * (big ? 1.35 : 1); // how high it arcs above the straight line
+  const spin = (Math.random() < 0.5 ? -1 : 1) * (420 + Math.random() * 300) * (big ? 1.6 : 1);
   // A label (Shift+Enter): the chip first struggles to stretch out to show it,
   // growing to the left (its right edge stays put, so "to skip" stays readable).
   const w0 = r.width, right = r.right;
@@ -482,76 +485,138 @@ function tossKey(btn, label = null) {
     w1 = Math.max(w0, chip.offsetWidth + 4);
     chip.style.width = `${w0}px`;
   }
-  const STRETCH = label ? 2000 : 0, CROUCH = 100, FLY = 740;
-  const TOTAL = STRETCH + CROUCH + FLY;
-  const PREP = (STRETCH + CROUCH) / TOTAL;
-  const PULL = 0.86; // most of the stretch is the struggle; then it snaps open
-  let launched = false, snapped = false;
-  if (label) sfx.stretch(STRETCH * PULL / 1000);
-  return (btn._landed = tween(TOTAL, (_, t) => {
-    const ms = t * TOTAL;
-    if (ms < STRETCH) {
-      const p = ms / STRETCH;
-      let e, strain;
-      if (p < PULL) {
-        // Heaving in jerky pulls that slip back a little each time, getting
-        // most of the way there, trembling harder and harder.
-        const q = p / PULL;
-        e = 0.78 * (q + 0.05 * (1 + Math.sin(8 * Math.PI * q - Math.PI / 2)));
-        strain = q;
-      } else {
-        // ...and then it gives: snaps the rest of the way out.
-        if (!snapped) { snapped = true; sfx.snap(); }
-        e = 0.78 + 0.22 * easeOutBack((p - PULL) / (1 - PULL));
-        strain = 0;
+  const setWidth = (w) => { chip.style.width = `${w}px`; chip.style.left = `${right - w}px`; };
+
+  // The struggle only goes on while Shift and Enter are both held down. Let go
+  // early and the chip springs back into the hint: nothing happens.
+  // Resolves true once it's stretched most of the way, false if let go.
+  const struggle = () => new Promise((resolve) => {
+    const PULL_MS = 1720;
+    const sound = sfx.stretch(PULL_MS / 1000);
+    let q = 0, e = 0, last = performance.now();
+    const frame = (now) => {
+      q = Math.min(1, q + (now - last) / PULL_MS);
+      last = now;
+      if (!held.shift || !held.enter) {
+        // Let go too soon: it springs back.
+        sound.stop();
+        sfx.blip(0);
+        const wFrom = w0 + (w1 - w0) * e;
+        chip.style.background = '';
+        tween(380, (_, k) => {
+          const back = 1 - (1 - Math.exp(-6 * k) * Math.cos(k * Math.PI * 3));
+          setWidth(w0 + (wFrom - w0) * back);
+          chip.style.transform = `scale(1, ${1 + 0.2 * Math.exp(-6 * k) * Math.sin(k * Math.PI * 3)})`;
+        }, linear).then(() => {
+          chip.remove();
+          btn.classList.remove('tossing');
+          btn._landed = null;
+          shiftStrain(held.shift); // still holding Shift: back to straining
+          resolve(false);
+        });
+        return;
       }
-      const w = w0 + (w1 - w0) * e;
-      chip.style.width = `${w}px`;
-      chip.style.left = `${right - w}px`;
-      const shake = 3.2 * strain * (0.35 + strain);
+      // Heaving in jerky pulls that slip back a little each time, getting
+      // most of the way there, trembling harder and harder.
+      e = 0.78 * (q + 0.05 * (1 + Math.sin(8 * Math.PI * q - Math.PI / 2)));
+      setWidth(w0 + (w1 - w0) * e);
+      const shake = 3.2 * q * (0.35 + q);
       const jx = (Math.random() - 0.5) * shake, jy = (Math.random() - 0.5) * shake * 0.6;
       // Thins out as it's pulled, and flushes a little pink from the effort.
-      chip.style.transform = `translate(${jx}px, ${jy}px) scale(1, ${1 - 0.22 * strain * Math.min(1, e / 0.78)})`;
-      const flush = Math.round(60 * strain);
+      chip.style.transform = `translate(${jx}px, ${jy}px) scale(1, ${1 - 0.22 * q * Math.min(1, e / 0.78)})`;
+      const flush = Math.round(60 * q);
       chip.style.background = `rgb(255, ${255 - flush}, ${255 - flush})`;
+      if (q >= 1) resolve(true);
+      else requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+  });
+
+  const SNAP = big ? 300 : 0, CROUCH = big ? 280 : 100, FLY = big ? 700 : 740;
+  const TOTAL = SNAP + CROUCH + FLY;
+  const PREP = (SNAP + CROUCH) / TOTAL;
+  let launched = false, snapped = false, lastGhost = 0;
+  const flight = () => tween(TOTAL, (_, t) => {
+    const ms = t * TOTAL;
+    if (ms < SNAP) {
+      // It gives: TWANG, it snaps the rest of the way out, overshooting and
+      // wobbling like a released rubber band.
+      const q = ms / SNAP;
+      if (!snapped) {
+        snapped = true;
+        sfx.snap();
+        impactFx(right - w1 / 2, y0, { size: 0.9, shards: 5, reach: 22 });
+        chip.classList.add('snap-flash');
+      }
+      const e = 0.78 + 0.22 * (1 - Math.exp(-6 * q) * Math.cos(q * Math.PI * 4.5));
+      setWidth(w0 + (w1 - w0) * e);
+      chip.style.background = '';
+      chip.style.transform = `scale(1, ${1 + 0.3 * Math.exp(-6 * q) * Math.sin(q * Math.PI * 4.5)})`;
       return;
     }
     if (t < PREP) {
-      const p = Math.sin(((ms - STRETCH) / CROUCH) * Math.PI / 2);
-      chip.style.width = `${w1}px`;
-      chip.style.left = `${right - w1}px`;
+      const p = Math.sin(((ms - SNAP) / CROUCH) * Math.PI / 2);
+      setWidth(w1);
       chip.style.background = '';
       x0 = right - w1 / 2; // fly from wherever its middle ended up
-      chip.style.transform = `translateY(${p * 3}px) scale(${1 + 0.32 * p}, ${1 - 0.4 * p})`;
+      if (big) {
+        // A deep, trembling crouch: it's about to go big.
+        const j = 1.6 * p;
+        chip.style.transform = `translate(${(Math.random() - 0.5) * j}px, ${p * 6}px) scale(${1 + 0.14 * p}, ${1 - 0.55 * p})`;
+      } else {
+        chip.style.transform = `translateY(${p * 3}px) scale(${1 + 0.32 * p}, ${1 - 0.4 * p})`;
+      }
       return;
     }
     if (!launched) {
-      // Jumps out: a little impact where it left from, and the rest of the hint goes.
+      // Jumps out: an impact where it left from, and the rest of the hint goes.
       launched = true;
       btn.classList.add('tossed');
       btn.classList.remove('tossing');
-      impactFx(x0, y0, { size: 0.8, shards: 6, reach: 26 });
+      chip.classList.remove('snap-flash');
+      impactFx(x0, y0, big ? { size: 1.7, shards: 14, reach: 70 } : { size: 0.8, shards: 6, reach: 26 });
       const row = btn.parentElement;
       row.classList.remove('knock');
       void row.offsetWidth;
       row.classList.add('knock');
-      sfx.pop();
+      if (big) {
+        // BOOM, it launches: the whole page jolts.
+        const app = document.querySelector('.app');
+        app.classList.remove('jolt');
+        void app.offsetWidth;
+        app.classList.add('jolt');
+        sfx.boing();
+      } else {
+        sfx.pop();
+      }
       sfx.whoosh();
     }
     const u = (t - PREP) / (1 - PREP);
     const x = x0 + (x1 - x0) * u;
     const y = y0 + (y1 - y0) * u * u - Math.sin(Math.PI * u) * lift; // up, then down into the cube
     const s = (1 + 0.5 * Math.sin(Math.PI * u)) * (1 - 0.8 * u ** 3); // swells mid-air, shrinks into it
-    const stretch = 1 + 0.35 * Math.exp(-7 * u); // stretched tall as it springs off
+    const stretch = 1 + (big ? 0.6 : 0.35) * Math.exp(-7 * u); // stretched tall as it springs off
     chip.style.transform = `translate(${x - x0}px, ${y - y0}px) rotate(${spin * u}deg) scale(${s / stretch}, ${s * stretch})`;
+    // The big one leaves a trail of fading afterimages.
+    if (big && ms - lastGhost > 26 && u < 0.92) {
+      lastGhost = ms;
+      const g = chip.cloneNode(true);
+      g.classList.add('ghost');
+      g.addEventListener('animationend', () => g.remove());
+      document.body.appendChild(g);
+    }
   }, linear).then(() => {
     // Slams into the cube and bursts into pieces of cube confetti.
     chip.remove();
-    impactFx(x1, y1, { size: 2.4, shards: 0 });
-    if (!REDUCED) physics.burst(x1, y1, 'white', label ? 22 : 14); // white, like the chip
-    stage.punch(1);
+    impactFx(x1, y1, { size: big ? 3.4 : 2.4, shards: 0 });
+    if (!REDUCED) physics.burst(x1, y1, 'white', big ? 32 : 14); // white, like the chip
+    stage.punch(big ? 1.5 : 1);
     sfx.impact();
-  }));
+    if (big) setTimeout(() => sfx.thud(), 70); // a second, deeper hit
+    return true;
+  });
+
+  return (btn._landed = (big ? struggle() : Promise.resolve(true)).then((ok) => (ok ? flight() : false)));
 }
 
 // A pixel shockwave (a square ring) and a spray of little shards at (x, y).
@@ -608,9 +673,14 @@ function next() {
 function finishLetter(label = null) {
   if (!job || (mode !== 'intro' && mode !== 'steps')) return;
   const j = job;
-  // Nothing happens until the ENTER chip lands in the cube.
-  tossKey($('skip'), label).then(() => {
-    if (job !== j) return;
+  // Nothing happens until the ENTER chip lands in the cube (and nothing at all
+  // if a Shift+Enter stretch was let go of early).
+  tossKey($('skip'), label).then((ok) => {
+    if (ok === false || job !== j) return;
+    if (label) {
+      if (word) word.auto = true; // Shift+Enter: finish the rest of the word too
+      if (solving) solving.auto = true; // ...or solve every remaining cube
+    }
     if (mode === 'intro') { j.finish = true; return; } // do it as soon as it's ready
     if (mode !== 'steps' || j.rush) return;
     sfx.whoosh();
@@ -850,6 +920,35 @@ if (!canHover) $('skip').innerHTML = '<span>tap to skip</span>';
 $('leave').addEventListener('click', (e) => { e.currentTarget.blur(); goHome(); });
 if (!canHover) $('leave').innerHTML = '<span>tap to leave</span>';
 
+// Which of Shift / Enter are held down right now (the Shift+Enter stretch only
+// goes on while both are).
+const held = { shift: false, enter: false };
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Shift') held.shift = true;
+  if (e.key === 'Enter') held.enter = true;
+}, { capture: true });
+document.addEventListener('keyup', (e) => {
+  if (e.key === 'Shift') held.shift = false;
+  if (e.key === 'Enter') held.enter = false;
+}, { capture: true });
+window.addEventListener('blur', () => { held.shift = held.enter = false; });
+
+// Holding Shift foreshadows Shift+Enter: the ENTER key in the hint starts
+// straining to stretch out (and springs back when Shift is let go).
+const skipHint = $('skip');
+function shiftStrain(on) {
+  const busy = skipHint.classList.contains('tossed') || skipHint.classList.contains('tossing');
+  const ok = on && !busy && (mode === 'steps' || mode === 'intro') && !steps.hidden && !!skipHint.querySelector('kbd');
+  if (ok === skipHint.classList.contains('shift-ready')) return;
+  skipHint.classList.remove('relax');
+  skipHint.classList.toggle('shift-ready', ok);
+  if (ok) sfx.stretch(0.22, 0.035); // a little creak
+  else if (!busy) { void skipHint.offsetWidth; skipHint.classList.add('relax'); }
+}
+document.addEventListener('keydown', (e) => { if (e.key === 'Shift' && !e.repeat) shiftStrain(true); });
+document.addEventListener('keyup', (e) => { if (e.key === 'Shift') shiftStrain(false); });
+window.addEventListener('blur', () => shiftStrain(false));
+
 document.addEventListener('keydown', (e) => {
   if (ach.isOpen()) return; // the achievements menu handles its own keys
   if (e.target.closest?.('button') && (e.key === ' ' || e.key === 'Enter')) return;
@@ -858,8 +957,7 @@ document.addEventListener('keydown', (e) => {
     else if (e.key === 'ArrowLeft') { e.preventDefault(); back(); }
     else if (e.key === 'Enter') {
       e.preventDefault();
-      if (e.shiftKey && word) word.auto = true; // Shift+Enter: finish the rest of the word too
-      if (e.shiftKey && solving) solving.auto = true; // ...or solve every remaining cube
+      if (e.repeat) return; // holding Enter down isn't pressing it again
       finishLetter(e.shiftKey ? 'shift + enter' : null);
     }
     else if (e.key === 'Escape') goHome();

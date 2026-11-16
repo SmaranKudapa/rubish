@@ -125,8 +125,9 @@ export const sfx = {
   },
   // A rubbery chip straining to stretch: a creaky, wobbling buzz that climbs
   // in pitch and trembles faster as the strain builds.
-  stretch(dur = 1.7) {
-    if (!ready()) return;
+  // Returns { stop() } to cut it short.
+  stretch(dur = 1.7, vol = 0.06) {
+    if (!ready()) return { stop() {} };
     const t = ctx.currentTime;
     const o = ctx.createOscillator();
     o.type = 'sawtooth';
@@ -146,23 +147,38 @@ export const sfx = {
     f.frequency.linearRampToValueAtTime(1500, t + dur);
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.06, t + 0.1);
-    g.gain.setValueAtTime(0.06, t + dur - 0.05);
+    g.gain.exponentialRampToValueAtTime(vol, t + Math.min(0.1, dur * 0.3));
+    g.gain.setValueAtTime(vol, t + Math.max(dur * 0.4, dur - 0.05));
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.03);
     const trem = ctx.createOscillator(); // the strain: a quick flutter in volume
     trem.frequency.setValueAtTime(14, t);
     trem.frequency.linearRampToValueAtTime(28, t + dur);
     const tremDepth = ctx.createGain();
     tremDepth.gain.setValueAtTime(0, t);
-    tremDepth.gain.linearRampToValueAtTime(0.03, t + dur);
+    tremDepth.gain.linearRampToValueAtTime(vol / 2, t + dur);
     trem.connect(tremDepth).connect(g.gain);
     o.connect(f).connect(g).connect(master);
     for (const n of [o, lfo, trem]) { n.start(t); n.stop(t + dur + 0.06); }
+    return {
+      stop() {
+        const now = ctx.currentTime;
+        g.gain.cancelScheduledValues(now);
+        g.gain.setValueAtTime(Math.max(0.0001, g.gain.value), now);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + 0.06);
+        for (const n of [o, lfo, trem]) { try { n.stop(now + 0.08); } catch { /* already stopped */ } }
+      },
+    };
   },
   // ...and it gives: a quick springy snap.
   snap() {
     tone({ freq: 320, to: 1150, dur: 0.09, vol: 0.09 });
     tone({ type: 'triangle', freq: 200, to: 90, dur: 0.12, vol: 0.1, delay: 0.02 });
+  },
+  // A big springy launch: a rising boing with a punchy pop under it.
+  boing() {
+    tone({ type: 'square', freq: 130, to: 640, dur: 0.2, vol: 0.09 });
+    tone({ type: 'triangle', freq: 280, to: 980, dur: 0.24, vol: 0.12, delay: 0.015 });
+    noise({ dur: 0.12, vol: 0.14, freq: 900, q: 0.6, type: 'lowpass' });
   },
   // Something small slamming into the cube: a heavy thump with a crunch.
   impact() {
