@@ -13,7 +13,7 @@ import { installCursor, canHover } from './cursor.js';
 import { createAchievements, iconURL } from './achievements.js';
 import { runNuke } from './nuke.js';
 import { robotArm, zapButton } from './arm.js';
-import { birthdayParty } from './party.js';
+import { createParty } from './party.js';
 
 const MAX_LEN = 12;
 const FACES = 'URFDLB';
@@ -104,28 +104,51 @@ let loopPromise = Promise.resolve();
 // B C D E F G an octave up. Playing the start of a certain tune unlocks a secret.
 const NOTES_TOP = [60, 62, 64, 65, 67, 69];
 const NOTES_BOTTOM = [71, 72, 74, 76, 77, 79];
-const TUNE = [67, 67, 69, 67, 72, 71, 67, 67, 69, 67, 74, 72]; // Happy Birthday, first two lines
+// Happy Birthday: [MIDI note, beats]. Every note is on one of the squares.
+const SONG = [
+  [67, 0.75], [67, 0.25], [69, 1], [67, 1], [72, 1], [71, 2],
+  [67, 0.75], [67, 0.25], [69, 1], [67, 1], [74, 1], [72, 2],
+  [67, 0.75], [67, 0.25], [79, 1], [76, 1], [72, 1], [71, 1], [69, 2],
+  [77, 0.75], [77, 0.25], [76, 1], [72, 1], [74, 1], [72, 3],
+];
+const CUE = 5; // play the first 5 notes and the squares play the rest themselves
+const BEAT = 430; // ms
 const played = [];
+let singing = false;
 function playNote(n) {
   sfx.note(n);
+  if (singing) return;
   played.push(n);
-  if (played.length > TUNE.length) played.shift();
-  if (played.length === TUNE.length && played.every((v, i) => v === TUNE[i])) {
+  if (played.length > CUE) played.shift();
+  if (played.length === CUE && played.every((v, i) => v === SONG[i][0])) {
     played.length = 0;
     ach.unlock('birthday');
-    party();
+    sing();
   }
 }
 
-// Candles on every cube, cakes on the floor, balloons rising (each time the
-// tune is played; one party at a time).
-let partying = false;
-async function party() {
-  if (partying || mode === 'nuke') return;
-  partying = true;
-  sfx.fanfare();
-  await birthdayParty({ stage, physics, sound: sfx });
-  partying = false;
+// The rest of the song plays itself on the squares (each one presses down as
+// its note plays), and the party starts: candles on every cube, balloons.
+const birthday = createParty({ stage, physics });
+async function sing() {
+  if (mode === 'nuke') return;
+  singing = true;
+  birthday.light();
+  const swatchFor = (n) => {
+    const i = NOTES_TOP.indexOf(n);
+    return i >= 0 ? $('swatches').children[i] : $('swatches-bg').children[NOTES_BOTTOM.indexOf(n)];
+  };
+  await new Promise((r) => setTimeout(r, SONG[CUE - 1][1] * BEAT)); // let the 5th note ring
+  for (const [n, beats] of SONG.slice(CUE)) {
+    if (mode === 'nuke') break;
+    const ms = beats * BEAT;
+    sfx.note(n, Math.min(1.2, (ms / 1000) * 0.9));
+    const sw = swatchFor(n);
+    sw?.classList.add('auto-press');
+    setTimeout(() => sw?.classList.remove('auto-press'), Math.min(ms - 40, 260));
+    await new Promise((r) => setTimeout(r, ms));
+  }
+  singing = false;
 }
 
 function swatchRow(el, notes, onPick) {
@@ -291,6 +314,7 @@ async function start(auto = false) {
   if (text === 'MUTE' || text === 'UNMUTE') return armSound(text === 'MUTE');
   mode = 'intro';
   loopToken++;
+  birthday.clearStage();
   input.blur();
   document.body.classList.add('focus');
   caption('');
