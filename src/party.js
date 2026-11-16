@@ -96,11 +96,21 @@ function balloonURL(colorName) {
     else if (x - cx + (y - cy) * 0.8 > 4.2) put(x, y, shade);
     else put(x, y, base);
   }
-  // Knot, then a wiggly string.
-  put(6, 15, '#111'); put(7, 15, '#111');
-  for (let x = 5; x <= 8; x++) put(x, 16, '#111');
+  // Knot right under the balloon's lowest row, then a wiggly string hanging
+  // from the knot (no gaps between them).
+  let bottom = 0;
+  for (let y = 0; y < 16; y++) if (inside(6, y) || inside(7, y)) bottom = y;
+  put(6, bottom + 1, '#111'); put(7, bottom + 1, '#111');
+  for (let x = 5; x <= 8; x++) put(x, bottom + 2, '#111');
   const wig = [0, 0, 1, 1, 1, 0, 0, -1, -1, -1, 0, 0, 1];
-  wig.forEach((d, i) => put(7 + d, 17 + i, '#111'));
+  let prevX = 7;
+  wig.forEach((d, i) => {
+    const x = 7 + d, y = bottom + 3 + i;
+    if (y >= Hp) return;
+    if (x !== prevX) put(prevX, y, '#111'); // join diagonal steps so the line never breaks
+    put(x, y, '#111');
+    prevX = x;
+  });
   return (balloonArt[colorName] = c.toDataURL('image/png'));
 }
 
@@ -215,20 +225,24 @@ export function createParty({ stage, physics, sound = {} }) {
         // The cube blew up: its candles go flying with the rest of it.
         const center = stage.toScreen(cube.group.getWorldPosition(new THREE.Vector3()));
         for (const { c } of s.candles) {
-          const b = c.root.getWorldPosition(new THREE.Vector3());
-          const top = c.root.localToWorld(new THREE.Vector3(0, 1, 0));
+          // Where it was and how big, as of the last frame the cube was whole
+          // (the stage resets a zoomed cube's size right after it bursts).
+          const b = c.lastB || c.root.getWorldPosition(new THREE.Vector3());
+          const top = c.lastTop || c.root.localToWorld(new THREE.Vector3(0, 1, 0));
           const sb = stage.toScreen(b), st = stage.toScreen(top);
           // The same candle, redrawn on the overlay at its on-screen size.
           const side = stage.toScreen(b.clone().add(new THREE.Vector3(1, 0, 0)));
-          const k = Math.hypot(side[0] - sb[0], side[1] - sb[1]); // px per cube unit here
+          const k = Math.hypot(side[0] - sb[0], side[1] - sb[1]); // px per world unit here
+          // Its real size in the world, including how far the cube was zoomed up.
+          const ws = c.lastWS || c.root.getWorldScale(new THREE.Vector3());
           const nc = buildCandle(c.color);
-          nc.root.scale.set(1.1 * k, 1.3 * k, 1.1 * k);
+          nc.root.scale.set(ws.x * k, ws.y * k, ws.z * k);
           nc.root.rotation.order = 'ZYX';
           nc.set(1, t);
           ensureOverlay().scene.add(nc.root);
           const dx = st[0] - sb[0], dy = st[1] - sb[1];
           const dl = Math.hypot(dx, dy) || 1;
-          fling(nc, sb, [sb[0] + (dx / dl) * 1.3 * k, sb[1] + (dy / dl) * 1.3 * k], center[0], center[1]);
+          fling(nc, sb, [sb[0] + (dx / dl) * ws.y * k, sb[1] + (dy / dl) * ws.y * k], center[0], center[1]);
         }
         cube.group.remove(s.holder);
         onStage.splice(i, 1);
@@ -236,7 +250,15 @@ export function createParty({ stage, physics, sound = {} }) {
       }
       // Leaving (a new word): shrink away in a few chunky steps.
       const out = s.leaving === null ? 1 : 1 - Math.ceil(clamp01((ms - s.leaving) / 400) * 4) / 4;
-      for (const { c, at } of s.candles) c.set(clamp01((ms - at) / 700) * out, t);
+      for (const { c, at } of s.candles) {
+        c.set(clamp01((ms - at) / 700) * out, t);
+        // Remember where it is and how big (zooming the cube scales it up), in
+        // case the cube bursts before the next frame.
+        c.root.updateMatrixWorld(true);
+        c.lastB = c.root.getWorldPosition(c.lastB || new THREE.Vector3());
+        c.lastTop = c.root.localToWorld((c.lastTop || new THREE.Vector3()).set(0, 1, 0));
+        c.lastWS = c.root.getWorldScale(c.lastWS || new THREE.Vector3());
+      }
       if (out <= 0) { cube.group.remove(s.holder); onStage.splice(i, 1); }
     }
 
