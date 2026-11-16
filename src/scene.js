@@ -413,6 +413,8 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
       raycaster.setFromCamera(ndc, camera);
       return raycaster.ray.clone();
     },
+    // Every cube that's on screen right now (not blown up).
+    cubes: () => allTargets().filter((t) => t.group.visible && !t.cube.exploding).map((t) => t.cube),
     // The visible cube furthest to the right on screen.
     rightmostCube() {
       let best = null, bx = -Infinity;
