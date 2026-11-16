@@ -332,6 +332,23 @@ body.finale .stage { max-width: 1100px; }
 
 
 /* ---------- Step player: just the button ---------- */
+/* SOLVE: shown on the start page under a finished word */
+.solve {
+  width: var(--row);
+  max-width: 100%;
+  height: 56px;
+  font: 14px var(--font);
+  background: var(--accent);
+  color: var(--accent-ink);
+  border: var(--px) solid var(--ink);
+  box-shadow: 6px 6px 0 var(--ink);
+  cursor: pointer;
+  transition: transform 0.65s var(--smooth), opacity 0.5s ease, box-shadow 0.12s ease, background-color 0.3s ease, filter 0.2s ease;
+}
+.solve:hover { filter: brightness(1.08); }
+.solve:active { transform: translate(6px, 6px); box-shadow: 0 0 0 var(--ink); }
+.solve:hover, .solve:active { transition-delay: 0s; } /* not the entry's slide-in stagger */
+
 .steps { opacity: 0; transform: translateY(16px); transition: opacity 0.4s ease, transform 0.5s var(--spring); }
 .steps.show { opacity: 1; transform: none; }
 .next {

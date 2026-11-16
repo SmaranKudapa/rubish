@@ -85,6 +85,7 @@ const input = $('char');
 const entry = $('entry');
 const steps = $('steps');
 const nextBtn = $('next');
+const solveBtn = $('solve');
 
 // opening → landing → intro → steps → celebrate → (intro → steps → celebrate)* → finale → done
 // "done" is the landing page showing off the finished word; a new word starts over.
@@ -94,6 +95,7 @@ let bgColor = 'white'; // background color
 let word = null; // { chars, idx, color, bg }
 let job = null; // { ch, hold, moves, step }
 let shown = null; // the finished word on the start page: { chars, cubes }
+let solving = null; // SOLVE after a word: { chars, cubes, idx, auto }
 let recolorToken = 0;
 let zoomStreak = 0; // zoom-booms in a row during the current letter (NON CUBER)
 let loopToken = 0;
@@ -322,6 +324,7 @@ async function start(auto = false) {
   if (text === 'NUKE') return launchNuke(); // easter egg
   if (text === 'MUTE' || text === 'UNMUTE') return armSound(text === 'MUTE');
   mode = 'intro';
+  solveBtn.hidden = true;
   loopToken++;
   birthday.clearStage();
   input.blur();
@@ -384,7 +387,7 @@ async function launchNuke() {
   caption('');
   const uiEls = [
     ...document.querySelectorAll('#swatches .swatch, #swatches-bg .swatch'),
-    $('char'), $('go'), $('mute'), $('caption'),
+    $('char'), $('go'), $('mute'), $('caption'), solveBtn,
   ];
   await runNuke({ stage, physics, title, uiEls, input, target: $('ach-btn'), data, sound: sfx, canHover, onImpact: () => ach.unlock('nuke') });
 }
@@ -469,12 +472,12 @@ async function runQueue() {
     const rushed = queued > 0;
     const ms = job.rush ? 95 : rushed ? 170 : 460;
     caption(m); // name the move in the landing page's caption box
-    await cube.turn(m, speed(ms), job.rush ? linear : rushed ? easeInOutCubic : easeOutBack);
+    await (job.cube || cube).turn(m, speed(ms), job.rush ? linear : rushed ? easeInOutCubic : easeOutBack);
     if (mode !== 'steps') break;
     if (job.step === job.moves.length) {
       queued = 0;
       running = false;
-      return celebrate();
+      return job.solving ? cubeSolved() : celebrate();
     }
   }
   running = false;
@@ -485,7 +488,7 @@ async function back() {
   job.step--;
   const m = invertMove(job.moves[job.step]);
   caption(m);
-  await cube.turn(m, speed(380), easeInOutCubic);
+  await (job.cube || cube).turn(m, speed(380), easeInOutCubic);
 }
 
 // ---------- Celebration, then the next letter (or the finale) ----------
@@ -531,6 +534,95 @@ async function finale() {
   if (!REDUCED) setTimeout(() => physics.confetti(170), 350);
   setTimeout(() => ach.unlock('first-word'), 900);
   sfx.fanfare();
+  solveBtn.hidden = false;
+}
+
+// ---------- SOLVE: walk through solving each cube of the finished word ----------
+// Same step player as the letters: each cube's moves are its recorded moves
+// undone, last first. Then confetti, and back to the plain landing page.
+async function startSolve() {
+  if (mode !== 'done' || !shown) return;
+  mode = 'intro';
+  recolorToken++; // stop any recolor in progress
+  solveBtn.hidden = true;
+  input.blur();
+  document.body.classList.add('focus');
+  slideOut(entry);
+  word = null;
+  const s = { chars: shown.chars, cubes: shown.cubes, idx: 0, auto: false };
+  solving = s;
+  sfx.submit();
+  nextBtn.disabled = true;
+  show(steps, true);
+  await Promise.all(s.cubes.map((c) => c.queue)); // let any turn in flight finish
+  if (solving === s) solveNext();
+}
+
+async function solveNext() {
+  const s = solving;
+  if (!s) return;
+  // Skip cubes that are already solved or blown up.
+  const onStage = stage.cubes();
+  while (s.idx < s.cubes.length && (!s.cubes[s.idx].history.length || !onStage.includes(s.cubes[s.idx]))) s.idx++;
+  if (s.idx >= s.cubes.length) return solvedAll();
+  mode = 'intro';
+  const c = s.cubes[s.idx];
+  const myJob = {
+    ch: s.chars[s.idx], cube: c, moves: [...c.history].reverse().map(invertMove),
+    step: 0, finish: s.auto, solving: true,
+  };
+  job = myJob;
+  zoomStreak = 0;
+  stage.focusSlot(s.idx);
+  flash(myJob.ch);
+  caption('');
+  nextBtn.disabled = true;
+  const alive = () => mode === 'intro' && job === myJob;
+  await sleep(speed(600), alive);
+  if (!alive()) return;
+  mode = 'steps';
+  nextBtn.disabled = false;
+  if (myJob.finish) finishLetter();
+}
+
+// One cube solved: a little pop, then on to the next.
+async function cubeSolved() {
+  mode = 'celebrate';
+  const s = solving;
+  caption('');
+  nextBtn.disabled = true;
+  sfx.thud();
+  await stage.popSlot(s.idx);
+  if (mode !== 'celebrate' || solving !== s) return;
+  s.idx++;
+  solveNext();
+}
+
+// Every cube solved: confetti, then the word clears and the landing page's
+// shuffling cube comes back.
+async function solvedAll() {
+  mode = 'celebrate';
+  const s = solving;
+  stage.focusSlot(null);
+  flash('');
+  caption('');
+  show(steps, false);
+  if (!REDUCED) physics.confetti(170);
+  sfx.fanfare();
+  await sleep(speed(1800), () => mode === 'celebrate' && solving === s);
+  if (mode !== 'celebrate' || solving !== s) return;
+  solving = null;
+  shown = null;
+  job = null;
+  document.body.classList.remove('focus', 'finale');
+  await stage.clearWord();
+  if (mode !== 'celebrate') return; // Esc'd home meanwhile
+  mode = 'landing';
+  stage.setSway(1);
+  input.value = '';
+  slideIn(entry);
+  input.focus({ preventScroll: true });
+  restartLoop();
 }
 
 // Esc during a word: back to the plain landing page.
@@ -543,6 +635,15 @@ function goHome() {
   flash('');
   caption('');
   document.body.classList.remove('focus');
+  // Esc while solving a finished word: clear the word off the stage first.
+  if (solving || stage.hasWord()) {
+    solving = null;
+    shown = null;
+    solveBtn.hidden = true;
+    stage.focusSlot(null);
+    document.body.classList.remove('finale');
+    loopPromise = loopPromise.then(() => stage.clearWord());
+  }
   show(steps, false);
   stage.setShake(0, 200);
   stage.setSway(1);
@@ -566,6 +667,7 @@ $('form').addEventListener('submit', (e) => {
   start();
 });
 nextBtn.addEventListener('click', (e) => { e.currentTarget.blur(); next(); });
+solveBtn.addEventListener('click', (e) => { e.currentTarget.blur(); startSolve(); });
 // 'Enter to skip' hint under the button; tapping it does the same (handy on phones).
 $('skip').addEventListener('click', (e) => { e.currentTarget.blur(); finishLetter(); });
 if (!canHover) $('skip').innerHTML = '<span>tap to skip</span>';
@@ -579,6 +681,7 @@ document.addEventListener('keydown', (e) => {
     else if (e.key === 'Enter') {
       e.preventDefault();
       if (e.shiftKey && word) word.auto = true; // Shift+Enter: finish the rest of the word too
+      if (e.shiftKey && solving) solving.auto = true; // ...or solve every remaining cube
       finishLetter();
     }
     else if (e.key === 'Escape') goHome();

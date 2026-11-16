@@ -390,9 +390,13 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
         // A spin ripples across the word every few seconds.
         const local = t - word.start - i * 0.15;
         const l = local > 0 ? local % 4.5 : 99;
-        const spin = l < 1.2 && !fx.armHold ? easeInOutCubic(l / 1.2) * Math.PI * 2 : 0;
+        // (paused while the word is being solved, so the moves are easy to follow)
+        const spin = l < 1.2 && !fx.armHold && word.focus == null ? easeInOutCubic(l / 1.2) * Math.PI * 2 : 0;
         sl.g.rotation.set(SLOT_TILT[0] + sl.drag.x, SLOT_TILT[1] + sl.drag.y + spin + (sl.roll || 0), 0);
-        sl.g.scale.setScalar(1 + (sl.pop || 0));
+        // Solving: the cube being solved swells a little, the others shrink back.
+        const hi = word.focus == null ? 0 : i === word.focus ? 1 : -1;
+        sl.hi = (sl.hi || 0) + (hi - (sl.hi || 0)) * (1 - Math.exp(-dt * 6));
+        sl.g.scale.setScalar(1 + (sl.pop || 0) + sl.hi * 0.14);
       });
     }
 
@@ -458,6 +462,15 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
     },
 
     hasWord: () => !!word,
+
+    // Solving the word: highlight the cube in slot i (null: none).
+    focusSlot(i) { if (word) word.focus = i; },
+    // A quick swell of the cube in slot i (it just got solved).
+    popSlot(i) {
+      const sl = word?.slots[i];
+      if (!sl) return Promise.resolve();
+      return tween(420, (_, k) => { sl.pop = Math.sin(Math.PI * k) * 0.16; }, (k) => k).then(() => { sl.pop = 0; });
+    },
 
     // Blow up every cube on stage for good (the nuke).
     shatterAll() {
