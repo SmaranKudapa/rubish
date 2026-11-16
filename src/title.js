@@ -75,35 +75,53 @@ export function buildTitle(el, data, { onExplode }) {
       busy = true;
       inner.classList.remove('spin');
 
-      // 1. Scramble: stickers flicker to random colors while the cube twists a full turn.
-      for (let r = 0; r < 9; r++) {
-        stickers.forEach((s) => s.style.setProperty('--c', randColor()));
-        await animate(110, (t) => {
-          const p = (r + t) / 9;
-          inner.style.transform = `rotateX(${-18 + Math.sin(Math.PI * p) * 28}deg) rotateY(${24 + p * 360}deg)`;
-        });
-      }
-      inner.style.transform = '';
-
-      // 2. Time bomb: shaking and flashing that speed up and grow.
-      let phase = 0;
-      await animate(2100, (t, dt) => {
-        const a = t * t;
-        phase += dt * (9 + 46 * t);
-        const amp = 1 + a * 7;
+      // The cube keeps rotating (faster and faster) from the first scramble
+      // until the moment it explodes.
+      let rotY = 24, rotX = -18, spinPhase = 0, phase = 0;
+      const turn = (dt, speed) => {
+        rotY += dt * speed;
+        spinPhase += dt * 3.1;
+        rotX = -18 + Math.sin(spinPhase) * 26;
+        inner.style.transform = `rotateX(${rotX}deg) rotateY(${rotY}deg)`;
+      };
+      const shake = (t, dt, intensity) => {
+        const a = intensity * intensity;
+        phase += dt * (9 + 46 * intensity);
+        const amp = 0.6 + a * 7.4;
         const x = Math.sin(phase * 6.1) * amp, y = Math.cos(phase * 4.7) * amp * 0.6;
         const rot = Math.sin(phase * 5.3) * amp * 0.9;
         shaker.style.transform = `translate(${x}px, ${y}px) rotate(${rot}deg) scale(${1 + 0.28 * a})`;
+      };
+
+      // 1. Scramble: stickers flicker to random colors while it twists and starts to shake.
+      let flick = 0;
+      await animate(1000, (t, dt) => {
+        flick += dt;
+        if (flick > 0.11) {
+          flick = 0;
+          stickers.forEach((s) => s.style.setProperty('--c', randColor()));
+        }
+        turn(dt, 360);
+        shake(t, dt, t * 0.25);
+      });
+
+      // 2. Time bomb: spinning, shaking and flashing all speed up and grow.
+      await animate(2100, (t, dt) => {
+        turn(dt, 360 + 900 * t * t);
+        shake(t, dt, 0.25 + 0.75 * t);
         const flash = Math.max(0, Math.sin(t * t * 42)) * t;
         shaker.style.filter = `brightness(${1 + flash * 0.9}) drop-shadow(0 0 ${10 * flash}px #fff)`;
       });
 
-      // 3. Boom: hide it and let the physics take over.
+      // 3. Boom: hide it and let the physics take over, starting from the cube's
+      // current angle.
       const rect = inner.getBoundingClientRect();
       mini.classList.add('gone');
       shaker.style.transform = '';
       shaker.style.filter = '';
-      onExplode(rect.left + rect.width / 2, rect.top + rect.height / 2, mini.offsetWidth * 1.15);
+      inner.style.transform = '';
+      const rad = Math.PI / 180;
+      onExplode(rect.left + rect.width / 2, rect.top + rect.height / 2, mini.offsetWidth * 1.15, -rotX * rad, rotY * rad);
       await sleep(3200);
 
       // 4. A fresh cube drops back in from the top (ease-in), then settles.
