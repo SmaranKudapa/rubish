@@ -6,8 +6,10 @@ import {
 } from './cube3d.js';
 import { createStage } from './scene.js';
 import { buildTitle } from './title.js';
-import { createCubeConfetti } from './confetti.js';
+import { createPhysics } from './physics3d.js';
 
+const MAX_LEN = 12;
+const FACES = 'URFDLB';
 const $ = (id) => document.getElementById(id);
 const CHARS = Object.keys(data);
 const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -19,17 +21,24 @@ const sleep = async (ms, alive = () => true) => {
 
 const cube = new RubiksCube();
 const stage = createStage($('cube'), cube);
-const confetti = createCubeConfetti($('confetti'));
-buildTitle($('title'), data);
+const physics = createPhysics($('physics'));
+buildTitle($('title'), data, {
+  onExplode: (x, y, size) => {
+    physics.explode(x, y, size);
+    boom(x, y);
+  },
+});
 
 const input = $('char');
 const entry = $('entry');
 const steps = $('steps');
 const nextBtn = $('next');
 
-// landing → intro → steps → celebrate → done → (intro → steps → celebrate → done)* ; finish → landing
+// landing → intro → steps → celebrate → (intro → steps → celebrate)* → finale → done
+// done → (new word) intro ... ; "I'm done" / Esc → landing
 let mode = 'landing';
 let color = 'red';
+let word = null; // { chars, idx, color }
 let job = null; // { ch, entry, hold, step }
 let loopToken = 0;
 let loopPromise = Promise.resolve();
@@ -92,11 +101,30 @@ function caption(text) {
   el.classList.toggle('show', !!text);
 }
 
-// ---------- Sliding panels ----------
+// ---------- Little effects ----------
+function boom(x, y) {
+  const el = document.createElement('div');
+  el.className = 'boom';
+  el.style.left = `${x}px`;
+  el.style.top = `${y}px`;
+  el.addEventListener('animationend', () => el.remove());
+  document.body.appendChild(el);
+}
+
+function flash(text) {
+  const el = $('flash');
+  if (text) {
+    el.textContent = text;
+    el.classList.remove('show');
+    void el.offsetWidth;
+  }
+  el.classList.toggle('show', !!text);
+}
+
 function slideOut(el) {
   clearTimeout(el._t);
   el.classList.add('out-left');
-  el._t = setTimeout(() => { el.hidden = true; }, 650);
+  el._t = setTimeout(() => { el.hidden = true; }, 700);
 }
 function slideIn(el) {
   clearTimeout(el._t);
@@ -114,7 +142,7 @@ function show(el, on) {
     el.classList.add('show');
   } else {
     el.classList.remove('show');
-    el._t = setTimeout(() => { el.hidden = true; }, 300);
+    el._t = setTimeout(() => { el.hidden = true; }, 400);
   }
 }
 
@@ -126,10 +154,10 @@ function shake() {
   input.focus();
 }
 
-// ---------- Starting a letter ----------
+// ---------- Starting a word ----------
 async function start() {
-  const ch = input.value.toUpperCase();
-  if (!data[ch]) return shake();
+  const text = input.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, MAX_LEN);
+  if (!text) return shake();
   if (mode !== 'landing' && mode !== 'done') return;
   mode = 'intro';
   loopToken++;
@@ -137,17 +165,48 @@ async function start() {
   document.body.classList.add('focus');
   caption('');
   slideOut(entry);
-
-  job = { ch, entry: data[ch], hold: holdFor(data[ch], color), step: 0 };
-  nextBtn.disabled = true;
-  show(steps, true);
+  word = { chars: [...text], idx: 0, color };
 
   await loopPromise;
+  if (stage.hasWord()) {
+    document.body.classList.remove('finale');
+    await stage.clearWord();
+  }
   stage.setSway(0.35);
-  const alive = () => mode === 'intro';
-  if (!(await cube.solve(speed(80), easeInOutCubic, alive))) return;
-  if (!(await cube.reorient(job.hold.front, job.hold.top, speed(420), easeInOutCubic, alive))) return;
+  beginLetter();
+}
+
+// Scramble hard while shaking, then solve back to a clean cube.
+async function scrambleAndSolve(alive) {
+  if (REDUCED) return cube.solve(0);
+  stage.setShake(1, 900);
+  const end = performance.now() + 2300;
+  let last = '';
+  while (performance.now() < end) {
+    if (!alive()) { stage.setShake(0, 300); return false; }
+    let f;
+    do f = FACES[Math.floor(Math.random() * 6)]; while (f === last);
+    last = f;
+    await cube.turn(f + ['', "'", '2'][Math.floor(Math.random() * 3)], 80, linear);
+  }
+  stage.setShake(0, 700);
+  return cube.solve(55, easeInOutCubic, alive);
+}
+
+async function beginLetter() {
+  mode = 'intro';
+  const ch = word.chars[word.idx];
+  const myJob = { ch, entry: data[ch], hold: holdFor(data[ch], word.color), step: 0 };
+  job = myJob;
+  const alive = () => mode === 'intro' && job === myJob;
+  nextBtn.disabled = true;
+  show(steps, true);
+  flash(ch);
+
+  if (!(await scrambleAndSolve(alive))) return;
+  if (!(await cube.reorient(myJob.hold.front, myJob.hold.top, speed(420), easeInOutCubic, alive))) return;
   if (!alive()) return;
+  flash('');
   stage.pop();
   mode = 'steps';
   nextBtn.disabled = false;
@@ -191,40 +250,71 @@ async function back() {
   await cube.turn(invertMove(job.entry.moves[job.step]), speed(380), easeInOutCubic);
 }
 
-// ---------- Celebration, then offer the next letter ----------
+function cubeCenter() {
+  const r = $('cube').getBoundingClientRect();
+  return [r.left + r.width / 2, r.top + r.height / 2, r];
+}
+
+// ---------- Celebration, then the next letter (or the finale) ----------
 async function celebrate() {
   mode = 'celebrate';
   nextBtn.disabled = true;
-  const { letter, bg } = job.hold;
-  if (!REDUCED) {
-    const r = $('cube').getBoundingClientRect();
-    const colors = [PALETTE[letter], PALETTE[letter], PALETTE[bg], ...COLOR_ORDER.map((c) => PALETTE[c])];
-    confetti.burst({ x: r.left + r.width / 2, y: r.top + r.height / 2, colors, count: 160 });
-  }
   show(steps, false);
+  const [x, y] = cubeCenter();
+  if (!REDUCED) physics.confetti(x, y, 80);
   await stage.celebrate();
+  if (mode !== 'celebrate') return;
+  word.idx++;
+  if (word.idx < word.chars.length) return beginLetter();
+  return finale();
+}
+
+async function finale() {
+  mode = 'finale';
+  document.body.classList.add('finale');
+  const cubes = [];
+  for (const ch of word.chars) {
+    const c = new RubiksCube();
+    const hold = holdFor(data[ch], word.color);
+    await c.reorient(hold.front, hold.top);
+    for (const m of data[ch].moves) await c.turn(m);
+    cubes.push(c);
+  }
+  await stage.showWord(cubes);
+  if (mode !== 'finale') return;
+  if (!REDUCED) {
+    const [, , r] = cubeCenter();
+    for (const f of [0.2, 0.5, 0.8]) physics.confetti(r.left + r.width * f, r.top + r.height * 0.4, 45, f === 0.5);
+  }
   mode = 'done';
   input.value = '';
   slideIn(entry);
   input.focus({ preventScroll: true });
 }
 
-function goHome() {
+async function goHome() {
   if (mode === 'landing') return;
   mode = 'landing';
   queued = 0;
   job = null;
+  word = null;
+  flash('');
   document.body.classList.remove('focus');
   show(steps, false);
+  stage.setShake(0, 200);
   stage.setSway(1);
   input.value = '';
   slideIn(entry);
-  restartLoop();
+  if (stage.hasWord()) {
+    document.body.classList.remove('finale');
+    await stage.clearWord();
+  }
+  if (mode === 'landing') restartLoop();
 }
 
 // ---------- Input wiring ----------
 input.addEventListener('input', () => {
-  input.value = input.value.replace(/[^a-z0-9]/gi, '').slice(-1).toUpperCase();
+  input.value = input.value.replace(/[^a-z0-9]/gi, '').slice(0, MAX_LEN).toUpperCase();
 });
 $('form').addEventListener('submit', (e) => {
   e.preventDefault();
@@ -235,15 +325,15 @@ $('finish').addEventListener('click', (e) => { e.currentTarget.blur(); goHome();
 
 document.addEventListener('keydown', (e) => {
   if (e.target.closest?.('button') && (e.key === ' ' || e.key === 'Enter')) return;
-  if (mode === 'steps') {
+  if (mode === 'steps' || mode === 'intro' || mode === 'celebrate') {
     if (e.code === 'Space' || e.key === 'ArrowRight') { e.preventDefault(); next(); }
     else if (e.key === 'ArrowLeft') { e.preventDefault(); back(); }
     else if (e.key === 'Escape') goHome();
     return;
   }
-  // Typing a character anywhere on the entry screen goes into the box.
+  // Typing anywhere on the entry screen goes into the box.
   if ((mode === 'landing' || mode === 'done') && e.target !== input && /^[a-z0-9]$/i.test(e.key) && !e.metaKey && !e.ctrlKey) {
-    input.value = e.key.toUpperCase();
+    input.value = (input.value + e.key.toUpperCase()).slice(0, MAX_LEN);
     input.focus();
     e.preventDefault();
   }

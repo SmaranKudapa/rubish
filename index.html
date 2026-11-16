@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Rubish</title>
-  <meta name="description" content="Turn a Rubik's cube into any letter or digit, step by step." />
+  <meta name="description" content="Turn a Rubik's cube into any word, letter by letter." />
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -15,15 +15,16 @@
     <header id="title" class="title"></header>
 
     <div class="stage">
-      <div id="cube" class="cube"></div>
+      <div id="cube" class="cube" aria-label="Rubik's cube, drag to rotate"></div>
+      <div id="flash" class="flash" aria-live="polite"></div>
       <div id="caption" class="caption" aria-live="polite"></div>
     </div>
 
     <div class="panel">
-      <!-- Character entry: landing page, and again after each letter -->
-      <section id="entry" class="entry slide">
+      <!-- Word entry: landing page, and again after each finished word -->
+      <section id="entry" class="entry">
         <form id="form" class="entry-row" autocomplete="off">
-          <input id="char" class="char" maxlength="1" inputmode="text" autocapitalize="characters" spellcheck="false" placeholder="A" aria-label="Character, A to Z or 0 to 9" autofocus />
+          <input id="char" class="char" maxlength="12" inputmode="text" autocapitalize="characters" spellcheck="false" placeholder="WORD" aria-label="Word, letters A to Z and digits 0 to 9" autofocus />
           <button id="go" class="go" type="submit" aria-label="Next">&gt;</button>
         </form>
         <div id="swatches" class="swatches" role="radiogroup" aria-label="Letter color"></div>
@@ -37,7 +38,7 @@
     </div>
   </main>
 
-  <canvas id="confetti" class="confetti" aria-hidden="true"></canvas>
+  <canvas id="physics" class="physics" aria-hidden="true"></canvas>
 
   <script type="module" src="/src/main.js"></script>
 </body>
