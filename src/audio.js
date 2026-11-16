@@ -132,6 +132,13 @@ export const sfx = {
     tone({ type: 'triangle', freq: 500 + Math.random() * 500, dur: 0.035, vol: 0.015 + v * 0.05 });
   },
   pop() { tone({ freq: 500, to: 1300, dur: 0.08, vol: 0.08 }); },
+  // A candle blown out: a soft breathy puff.
+  blowOut() { noise({ dur: 0.4, vol: 0.12, freq: 1100, to: 260, q: 0.5, type: 'lowpass' }); },
+  // A balloon popping: a sharp crack with a little low thump under it.
+  balloonPop() {
+    noise({ dur: 0.08, vol: 0.32, freq: 1800, q: 0.4, type: 'highpass' });
+    tone({ type: 'triangle', freq: 240, to: 70, dur: 0.07, vol: 0.14 });
+  },
   // NUKE: an air-raid siren that climbs for `sec` seconds, ending in a falling
   // whistle as it arrives.
   siren(sec) {

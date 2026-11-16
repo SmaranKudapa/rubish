@@ -10,6 +10,8 @@
 //    the cube and cast shadows); the ones on the RUBISH title cubes are drawn
 //    on a 3D overlay that follows each title cube.
 //  - Balloons are flat pixel art.
+//  - Click a lit candle to blow it out (a puff of pixel smoke); click a
+//    balloon to pop it into confetti of its own color.
 import * as THREE from 'three';
 import { PALETTE } from './cube3d.js';
 
@@ -58,11 +60,14 @@ function buildCandle(colorName) {
   return {
     root,
     color: colorName,
+    out: false, // blown out
+    lit: false, // flame showing right now
     set(grow, t) {
       const g = Math.ceil(clamp01(grow) * 6) / 6; // chunky steps
       body.scale.set(1, Math.max(0.001, g), 1);
       flame.position.y = 1.12 * g;
-      flame.visible = g >= 1;
+      flame.visible = g >= 1 && !this.out;
+      this.lit = flame.visible;
       // A new flame "frame" 8 times a second.
       const frame = Math.floor(t * 8) + seed;
       const j = (k) => (((frame * 9301 + k * 49297) % 233280) / 233280 - 0.5);
@@ -133,6 +138,7 @@ function releaseBalloons(W) {
     b.style.setProperty('--sway', `${rand(1.6, 2.6).toFixed(2)}s`);
     const img = document.createElement('img');
     img.src = balloonURL(colors[i % colors.length]);
+    img.dataset.color = colors[i % colors.length];
     img.alt = '';
     img.width = 14 * px;
     img.height = 30 * px;
@@ -236,6 +242,7 @@ export function createParty({ stage, physics, sound = {} }) {
           // Its real size in the world, including how far the cube was zoomed up.
           const ws = c.lastWS || c.root.getWorldScale(new THREE.Vector3());
           const nc = buildCandle(c.color);
+          nc.out = c.out;
           nc.root.scale.set(ws.x * k, ws.y * k, ws.z * k);
           nc.root.rotation.order = 'ZYX';
           nc.set(1, t);
@@ -277,6 +284,8 @@ export function createParty({ stage, physics, sound = {} }) {
       }
       s.c.root.position.set(base[0], -base[1], 50);
       s.c.root.scale.set(r.width * 0.6, r.width * 0.55, r.width * 0.6);
+      s.base = base;
+      s.top = [base[0], base[1] - r.width * 0.55 * Math.cos(0.35)];
       s.c.set(clamp01((ms - s.at) / 700), t);
     }
     // Flung candles: one rigid, tumbling piece under gravity, bouncing off the
@@ -296,6 +305,8 @@ export function createParty({ stage, physics, sound = {} }) {
       const base = [f.x - (ux * f.len) / 2, f.y - (uy * f.len) / 2];
       const top = [f.x + (ux * f.len) / 2, f.y + (uy * f.len) / 2];
       f.c.root.position.set(base[0], -base[1], 60);
+      f.base = base;
+      f.top = top;
       f.c.root.rotation.set(f.tilt, f.yaw, -f.a);
       f.c.set(1, t);
       if ((Math.max(base[1], top[1]) >= floorY && f.vy > 0) || now - f.born > 6000) {
@@ -313,6 +324,110 @@ export function createParty({ stage, physics, sound = {} }) {
     else { running = false; lastFrame = 0; }
   };
   const run = () => { if (!running) { running = true; requestAnimationFrame(frame); } };
+
+  // ---------- Blowing candles out, popping balloons ----------
+  // Every lit candle on screen, as a screen-space segment from its base to the
+  // top of its flame.
+  function litCandles() {
+    const out = [];
+    const flameTop = (b, t) => [t[0] + (t[0] - b[0]) * 0.5, t[1] + (t[1] - b[1]) * 0.5];
+    for (const s of onStage) {
+      if (s.leaving !== null || s.cube.exploding || !s.cube.group.visible) continue;
+      for (const { c } of s.candles) {
+        if (!c.lit || !c.lastB) continue;
+        const b = stage.toScreen(c.lastB), t = stage.toScreen(c.lastTop);
+        out.push({ c, base: b, top: flameTop(b, t) });
+      }
+    }
+    for (const s of onTitle) if (s.c.lit && s.base) out.push({ c: s.c, base: s.base, top: flameTop(s.base, s.top) });
+    for (const f of flying) if (f.c.lit && f.base) out.push({ c: f.c, base: f.base, top: flameTop(f.base, f.top) });
+    return out;
+  }
+  const segDist = ([px, py], [ax, ay], [bx, by]) => {
+    const dx = bx - ax, dy = by - ay;
+    const k = clamp01(((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy || 1));
+    return Math.hypot(px - (ax + dx * k), py - (ay + dy * k));
+  };
+
+  function blowCandleAt(x, y) {
+    let best = null, bd = Infinity;
+    for (const h of litCandles()) {
+      const len = Math.hypot(h.top[0] - h.base[0], h.top[1] - h.base[1]);
+      const d = segDist([x, y], h.base, h.top);
+      if (d < Math.max(14, len * 0.22) && d < bd) { best = h; bd = d; }
+    }
+    if (!best) return false;
+    best.c.out = true;
+    // The smoke curls up from the wick (just below the flame's tip).
+    const wick = [best.base[0] + (best.top[0] - best.base[0]) * 0.72, best.base[1] + (best.top[1] - best.base[1]) * 0.72];
+    smoke(wick[0], wick[1]);
+    sound.blowOut?.();
+    return true;
+  }
+
+  // Retro smoke: chunky grey pixel puffs that drift up, grow and fade, a quick
+  // burst and then a thinning wisp.
+  let smokeBox = null;
+  function smoke(x, y) {
+    if (!smokeBox || !smokeBox.isConnected) {
+      smokeBox = document.createElement('div');
+      smokeBox.className = 'party-smoke';
+      document.body.appendChild(smokeBox);
+    }
+    const box = smokeBox;
+    for (let i = 0; i < 11; i++) {
+      const at = i < 4 ? i * 60 : 240 + (i - 4) ** 1.6 * 70;
+      setTimeout(() => {
+        const p = document.createElement('div');
+        p.className = 'smoke-puff';
+        const size = Math.round(rand(5, 10) - i * 0.3);
+        p.style.cssText = `left:${x - size / 2 + rand(-2, 2)}px;top:${y - size / 2}px;width:${size}px;height:${size}px;`
+          + `--dx:${rand(-22, 22).toFixed(0)}px;--rise:${rand(55, 95).toFixed(0)}px;--dur:${rand(0.9, 1.4).toFixed(2)}s;--grow:${rand(1.6, 2.4).toFixed(2)}`;
+        p.addEventListener('animationend', () => {
+          p.remove();
+          if (!box.children.length) box.remove();
+        });
+        box.appendChild(p);
+      }, at);
+    }
+  }
+
+  function popBalloonAt(x, y) {
+    const imgs = [...document.querySelectorAll('.party-balloons .balloon img')];
+    // Front-most first (later ones are drawn on top).
+    for (let i = imgs.length - 1; i >= 0; i--) {
+      const img = imgs[i];
+      const r = img.getBoundingClientRect();
+      if (!r.width) continue;
+      // The round part of the balloon (not the string).
+      const cx = r.left + r.width * (7 / 14), cy = r.top + r.height * (7.5 / 30);
+      const rx = r.width * (6.3 / 14) * 1.15, ry = r.height * (7.4 / 30) * 1.15;
+      if (((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 > 1) continue;
+      img.closest('.balloon')?.remove();
+      physics.burst?.(cx, cy, img.dataset.color || 'red', 28);
+      sound.balloonPop?.();
+      return true;
+    }
+    return false;
+  }
+
+  // Runs before the cubes and the title see the press, so clicking a candle or
+  // a balloon doesn't also drag or spin what's behind it.
+  let swallowClick = 0;
+  window.addEventListener('pointerdown', (e) => {
+    if (e.button && e.button !== 0) return;
+    if (popBalloonAt(e.clientX, e.clientY) || blowCandleAt(e.clientX, e.clientY)) {
+      e.stopPropagation();
+      e.preventDefault();
+      swallowClick = performance.now();
+    }
+  }, { capture: true });
+  window.addEventListener('click', (e) => {
+    if (performance.now() - swallowClick < 400) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+  }, { capture: true });
 
   return {
     // Light candles on every cube that doesn't have them yet, and let the
