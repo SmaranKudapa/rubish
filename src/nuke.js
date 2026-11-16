@@ -465,46 +465,30 @@ export async function runNuke({ stage, physics, title, uiEls, input, target, dat
   stage.shatterAll();
   title.explodeAll();
   physics.confetti(160);
-  // One piece of debris flies into the glass, cracks it, and sticks there
-  // (half in the screen) until it becomes the D of NUKED.
-  let stuck = null;
-  setTimeout(() => {
-    const p = physics.pickPiece();
-    if (!p) return; // no debris, no crack
-    const cx2 = W * (0.22 + Math.random() * 0.56), cy2 = H * (0.18 + Math.random() * 0.2);
-    // It comes at the glass slower and slower (a cartoon whistle as it
-    // closes in), visibly growing all the way, then smashes into it.
-    // Colored on every side, so it reads as a solid little cube.
-    physics.colorAll(p);
-    const DUR = 4500;
-    sound.slideWhistle?.(DUR / 1000);
-    physics.sendTo(p, {
-      x: cx2, y: cy2, size: Math.min(W, H) * 0.15, dur: DUR, lift: 0, stay: true, freeze: true,
-      ease: (t) => 1 - (1 - t) ** 2.6,
-      sizeEase: (t) => t * t, // grows quadratically: slowly at first, ballooning as it gets close
-      onArrive: () => { crackScreen(cx2, cy2); sound.glass?.(); stuck = p; },
-    });
-  }, 1500);
-
-  // Near misses: lots of other bits of debris come at the screen too, at all
-  // sorts of speeds, ballooning as they close in. Most whoosh off past an edge;
-  // some fly right past the camera, close by the side of the screen (never
-  // over the middle). None of them hit the glass (only the one above does that).
-  for (let i = 0; i < 24; i++) {
+  // Near misses: lots of bits of debris come at the screen, at all sorts of
+  // speeds, ballooning as they close in. Most whoosh off past an edge; some fly
+  // past the camera by the side of the screen, keeping their distance. None of
+  // them hit the glass: that's the last piece's job (below).
+  // Plan them all first, so the last piece can be timed after them.
+  const misses = Array.from({ length: 24 }, () => {
+    const flyby = Math.random() < 0.35;
+    const speed = Math.random(); // 0 = slow drifter, 1 = streaks past
+    const at = 600 + Math.random() * 4400;
+    const dur = flyby ? 700 + (1 - speed) * 900 : 900 + (1 - speed) * 2600;
+    return { flyby, at, dur };
+  });
+  for (const m of misses) {
     setTimeout(() => {
       const p = physics.pickPiece();
       if (!p) return;
       physics.colorAll(p);
-      const flyby = Math.random() < 0.35;
-      const speed = Math.random(); // 0 = slow drifter, 1 = streaks past
-      const dur = flyby ? 700 + (1 - speed) * 900 : 900 + (1 - speed) * 3100;
       let tx, ty, size;
-      if (flyby) {
-        // Past the camera by the left or right side: it ends centered just
-        // beyond that edge, so at its biggest only a strip of it covers the side.
+      if (m.flyby) {
+        // Past the camera by the left or right side, staying well out: it ends
+        // centered past that edge, so at most a sliver of it crosses onto the screen.
         const right = Math.random() < 0.5;
-        size = Math.min(H * (0.7 + Math.random() * 0.35), W * 0.8); // (narrow phone screens too)
-        const out = size * (0.18 + Math.random() * 0.15); // how far past the edge its middle ends up
+        size = Math.min(H * (0.5 + Math.random() * 0.25), W * 0.55);
+        const out = size * (0.32 + Math.random() * 0.14); // how far past the edge its middle ends up
         tx = right ? W + out : -out;
         ty = H * (0.2 + Math.random() * 0.6);
       } else {
@@ -515,16 +499,44 @@ export async function runNuke({ stage, physics, title, uiEls, input, target, dat
         size = Math.min(W, H) * (0.25 + Math.random() * 0.3);
       }
       physics.sendTo(p, {
-        x: tx, y: ty, size, dur, lift: 0,
-        fade: flyby ? 40 : 200, // a fly-by is just gone, past the lens
+        x: tx, y: ty, size, dur: m.dur, lift: 0,
+        fade: m.flyby ? 40 : 200, // a fly-by is just gone, past the lens
         ease: (t) => t * t * (3 - 2 * t) * 0.35 + t * t * 0.65, // drifts, then rushes past
-        sizeEase: flyby ? (t) => t ** 3 : (t) => t * t, // grows faster and faster as it gets close
-        onArrive: () => { if (!flyby) sound.whoosh?.(); },
+        sizeEase: m.flyby ? (t) => t ** 3 : (t) => t * t, // grows faster and faster as it gets close
+        onArrive: () => { if (!m.flyby) sound.whoosh?.(); },
       });
       // A fly-by gets a loud rushing whoosh as it tears past.
-      if (flyby) setTimeout(() => sound.flyby?.(), Math.max(0, dur - 260));
-    }, 600 + Math.random() * 6400);
+      if (m.flyby) setTimeout(() => sound.flyby?.(), Math.max(0, m.dur - 260));
+    }, m.at);
   }
+
+  // The last piece of debris is the one that hits: it sets off after all the
+  // others and smashes into the glass 2 seconds after the last near miss has
+  // gone by, cracks it, and sticks there (half in the screen) until it becomes
+  // the D of NUKED.
+  const HIT_DUR = 4500;
+  const lastMissEnd = Math.max(...misses.map((m) => m.at + m.dur));
+  const lastLaunch = Math.max(...misses.map((m) => m.at));
+  const hitStart = Math.max(lastMissEnd + 2000 - HIT_DUR, lastLaunch + 200);
+  let stuck = null;
+  let hitDone;
+  const glassHit = new Promise((r) => { hitDone = r; });
+  setTimeout(() => {
+    const p = physics.pickPiece();
+    if (!p) return hitDone(); // no debris, no crack
+    const cx2 = W * (0.22 + Math.random() * 0.56), cy2 = H * (0.18 + Math.random() * 0.2);
+    // It comes at the glass slower and slower (a cartoon whistle as it
+    // closes in), visibly growing all the way, then smashes into it.
+    // Colored on every side, so it reads as a solid little cube.
+    physics.colorAll(p);
+    sound.slideWhistle?.(HIT_DUR / 1000);
+    physics.sendTo(p, {
+      x: cx2, y: cy2, size: Math.min(W, H) * 0.15, dur: HIT_DUR, lift: 0, stay: true, freeze: true,
+      ease: (t) => 1 - (1 - t) ** 2.6,
+      sizeEase: (t) => t * t, // grows quadratically: slowly at first, ballooning as it gets close
+      onArrive: () => { crackScreen(cx2, cy2); sound.glass?.(); stuck = p; hitDone(); },
+    });
+  }, hitStart);
 
   // Bits of the UI shake loose and fall, at random.
   for (const n of panelish) if (n) { n.style.transform = ''; n.classList.add('quake'); }
@@ -583,6 +595,7 @@ export async function runNuke({ stage, physics, title, uiEls, input, target, dat
   await sleep(1800);
   stage.fx.shake = 0;
   await sleep(6900);
+  await Promise.race([glassHit, sleep(6000)]); // the last piece has hit the glass (it always has by now)
 
   // ...gains a D. The piece stuck in the glass wrenches free, and as it
   // spirals in (spinning faster and faster) the D's slot opens at the same
