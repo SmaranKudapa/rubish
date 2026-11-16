@@ -15,7 +15,6 @@
 import * as THREE from 'three';
 import { PALETTE } from './cube3d.js';
 import { buildCube } from './title.js';
-import { ringsAround } from './arm.js';
 
 const TOTAL = 22000; // launch to impact (it takes its time)
 const LAUNCH = 2200; // the launcher slides in and opens before the missile fires
@@ -552,7 +551,6 @@ export async function runNuke({ stage, physics, title, uiEls, input, target, dat
   const showD = () => {
     d.classList.add('letter-in', 'd-morph');
     d.addEventListener('animationend', () => d.classList.remove('d-morph'), { once: true });
-    ringsAround(dr, 3);
     sound.pop?.();
     sound.blip?.(5);
   };
