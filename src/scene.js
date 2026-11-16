@@ -390,7 +390,7 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
         // A spin ripples across the word every few seconds.
         const local = t - word.start - i * 0.15;
         const l = local > 0 ? local % 4.5 : 99;
-        const spin = l < 1.2 ? easeInOutCubic(l / 1.2) * Math.PI * 2 : 0;
+        const spin = l < 1.2 && !fx.armHold ? easeInOutCubic(l / 1.2) * Math.PI * 2 : 0;
         sl.g.rotation.set(SLOT_TILT[0] + sl.drag.x, SLOT_TILT[1] + sl.drag.y + spin + (sl.roll || 0), 0);
         sl.g.scale.setScalar(1 + (sl.pop || 0));
       });
@@ -404,6 +404,25 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
 
   return {
     fx,
+    // For things that live in the cubes' 3D world (the MUTE arm).
+    three: { scene, camera, canvas: renderer.domElement },
+    toScreen: (p) => toScreen(v.copy(p).project(camera)),
+    // The ray from the camera through a screen point.
+    rayAt(x, y) {
+      ndc.set((x / window.innerWidth) * 2 - 1, -(y / window.innerHeight) * 2 + 1);
+      raycaster.setFromCamera(ndc, camera);
+      return raycaster.ray.clone();
+    },
+    // The visible cube furthest to the right on screen.
+    rightmostCube() {
+      let best = null, bx = -Infinity;
+      for (const t of allTargets()) {
+        if (!t.group.visible || t.cube.exploding) continue;
+        const [x] = toScreen(t.group.getWorldPosition(new THREE.Vector3()).project(camera));
+        if (x > bx) { bx = x; best = t.cube; }
+      }
+      return best;
+    },
     setSway: (to, ms = 800) => { const from = fx.sway; return tween(ms, (e) => { fx.sway = from + (to - from) * e; }); },
     setShake: (to, ms = 600) => { const from = fx.shake; return tween(ms, (e) => { fx.shake = from + (to - from) * e; }); },
     pop: () => tween(420, (_, t) => { fx.scale = 1 + Math.sin(Math.PI * t) * 0.06; }, (t) => t),
