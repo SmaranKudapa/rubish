@@ -9,7 +9,8 @@ import * as THREE from 'three';
 import { PALETTE, COLOR_ORDER } from './cube3d.js';
 
 const GRAVITY = 2300; // px/s^2
-const RESTITUTION = 0.32;
+const RESTITUTION = 0.32; // piece vs piece
+const FLOOR_BOUNCE = 0.72; // the floor is springy: pieces keep bouncing
 const SUBSTEPS = 4;
 const CELL = 40;
 const DEPTH_TOUCH = 0.28; // pieces closer than this in depth can collide
@@ -182,7 +183,7 @@ export function createPhysics({ back, front, obstacles = () => [] }) {
       const floor = floorOf(p);
       if (p.y + p.r >= floor) {
         p.y = floor - p.r;
-        p.vy = p.vy > 90 ? -p.vy * RESTITUTION : Math.min(p.vy, 0);
+        p.vy = p.vy > 70 ? -p.vy * FLOOR_BOUNCE : Math.min(p.vy, 0);
         p.vx *= 0.985;
         // Roll along the floor; damp the other spins.
         p.w.z = -p.vx / Math.max(p.r, 1);
@@ -288,6 +289,24 @@ export function createPhysics({ back, front, obstacles = () => [] }) {
           vx: rand(-420, 420), vy: rand(-150, 650),
           size: rand(11, 16), faces: shuffle([...COLOR_ORDER]),
         }), rand(0, 900));
+      }
+    },
+
+    // Pieces of a 3D cube that was zoomed apart until it broke: each flies out
+    // from the cube's center, keeping its stickers and orientation.
+    shatter(pieces) {
+      for (const pc of pieces) {
+        const len = Math.hypot(pc.dx, pc.dy) || 1;
+        const power = rand(450, 950);
+        add({
+          x: pc.x, y: pc.y,
+          vx: (pc.dx / len) * power + rand(-90, 90),
+          vy: (pc.dy / len) * power - rand(300, 650),
+          z: rand(-0.6, 0.6),
+          size: pc.size, faces: pc.faces, quat: pc.quat,
+          w: new THREE.Vector3(rand(-10, 10), rand(-10, 10), rand(-10, 10)),
+          delay: 2600, dur: 1500,
+        });
       }
     },
 
