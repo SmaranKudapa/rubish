@@ -13,6 +13,7 @@ import { installCursor, canHover } from './cursor.js';
 import { createAchievements, iconURL } from './achievements.js';
 import { runNuke } from './nuke.js';
 import { robotArm, zapButton } from './arm.js';
+import { birthdayParty } from './party.js';
 
 const MAX_LEN = 12;
 const FACES = 'URFDLB';
@@ -109,7 +110,22 @@ function playNote(n) {
   sfx.note(n);
   played.push(n);
   if (played.length > TUNE.length) played.shift();
-  if (played.length === TUNE.length && played.every((v, i) => v === TUNE[i])) ach.unlock('birthday');
+  if (played.length === TUNE.length && played.every((v, i) => v === TUNE[i])) {
+    played.length = 0;
+    ach.unlock('birthday');
+    party();
+  }
+}
+
+// Candles on every cube, cakes on the floor, balloons rising (each time the
+// tune is played; one party at a time).
+let partying = false;
+async function party() {
+  if (partying || mode === 'nuke') return;
+  partying = true;
+  sfx.fanfare();
+  await birthdayParty({ stage, physics, sound: sfx });
+  partying = false;
 }
 
 function swatchRow(el, notes, onPick) {
