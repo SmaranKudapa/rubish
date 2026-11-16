@@ -44,6 +44,19 @@ function trefoil() {
 
 const ICONS = {
   nuke: trefoil(),
+  cake: [
+    '..y...y...y.',
+    '..o...o...o.',
+    '..w...w...w.',
+    '.kwkkkwkkkwk',
+    'kwwwwwwwwwwk',
+    'krrwrrrwrrrk',
+    'kwwwwwwwwwwk',
+    'kyyyyyyyyyyk',
+    'kwwwwwwwwwwk',
+    'kbbbbbbbbbbk',
+    'kkkkkkkkkkkk',
+  ],
   trophy: [
     '..kkkkkkkk..',
     '.kyyyyyyyyk.',
@@ -103,6 +116,7 @@ export const ACHIEVEMENTS = [
   { id: 'kaboom', icon: 'boom', title: 'ZOOM BOOM', desc: 'Zoom into a cube until it bursts apart.', secret: true },
   { id: 'copycat', icon: 'twins', title: 'CLONE', desc: 'Click a flying cube to clone it.', secret: true },
   { id: 'nuke', icon: 'nuke', title: 'NUKE', desc: 'Send in a nuke by typing nuke.', secret: true },
+  { id: 'birthday', icon: 'cake', title: 'HAPPY BIRTHDAY', desc: 'Play Happy Birthday on the color squares.', secret: true },
 ];
 
 export function createAchievements({ button, panel, list, count, close, toast, sound = {} }) {

@@ -86,6 +86,8 @@ export const sfx = {
   },
   step() { tone({ freq: 660, to: 990, dur: 0.06, vol: 0.07 }); },
   blip(i = 0) { tone({ freq: NOTE(72 + i * 2), dur: 0.05, vol: 0.07 }); },
+  // A musical note (MIDI number), used by the color squares.
+  note(n) { tone({ freq: NOTE(n), dur: 0.22, vol: 0.09 }); tone({ type: 'triangle', freq: NOTE(n - 12), dur: 0.22, vol: 0.05 }); },
   submit() {
     [64, 67, 71, 76].forEach((n, i) => tone({ freq: NOTE(n), dur: 0.07, vol: 0.08, delay: i * 0.05 }));
   },
