@@ -248,10 +248,44 @@ export const sfx = {
     };
   },
   // Something smacking into the screen glass.
+  // The screen shattering: a sharp crack, a heavy thump, a crunchy breakup,
+  // then shards of glass tinkling down.
   glass() {
-    noise({ dur: 0.5, vol: 0.35, freq: 4200, to: 1800, q: 1.5 });
-    tone({ type: 'square', freq: 2400, to: 900, dur: 0.12, vol: 0.08 });
-    tone({ type: 'triangle', freq: 180, to: 60, dur: 0.25, vol: 0.2 });
+    noise({ dur: 0.06, vol: 0.5, freq: 3200, q: 0.4, type: 'highpass' });
+    tone({ type: 'triangle', freq: 170, to: 45, dur: 0.32, vol: 0.3 });
+    noise({ dur: 0.5, vol: 0.24, freq: 2600, to: 800, q: 0.9, delay: 0.015 });
+    tone({ type: 'square', freq: 2600, to: 1100, dur: 0.07, vol: 0.05, delay: 0.01 });
+    for (let i = 0; i < 16; i++) {
+      tone({
+        type: Math.random() < 0.5 ? 'sine' : 'triangle',
+        freq: 2200 + Math.random() * 4600,
+        dur: 0.04 + Math.random() * 0.12,
+        vol: 0.025 + Math.random() * 0.045,
+        delay: 0.05 + Math.random() * Math.random() * 0.9, // most early, a few late
+      });
+    }
+  },
+  // A cartoon slide whistle swooping down as something drops toward you,
+  // getting louder as it gets closer.
+  slideWhistle(dur = 2.2) {
+    if (!ready()) return;
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(1900, t);
+    o.frequency.exponentialRampToValueAtTime(380, t + dur);
+    const lfo = ctx.createOscillator(); // a little wobble, like a real slide whistle
+    lfo.frequency.value = 6;
+    const depth = ctx.createGain();
+    depth.gain.value = 16;
+    lfo.connect(depth).connect(o.frequency);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.04, t + 0.15);
+    g.gain.exponentialRampToValueAtTime(0.15, t + dur);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.04);
+    o.connect(g).connect(master);
+    for (const n of [o, lfo]) { n.start(t); n.stop(t + dur + 0.06); }
   },
   launch() {
     noise({ dur: 1.4, vol: 0.22, freq: 200, to: 3200, q: 0.8 });

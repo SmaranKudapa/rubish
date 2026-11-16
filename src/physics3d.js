@@ -272,7 +272,7 @@ export function createPhysics({ back, front, obstacles = () => [], sound = {}, o
           Object.assign(h, { sx: p.x, sy: p.y, ss: p.size });
         }
         const k = Math.min(1, (now - h.t0) / h.dur);
-        const e = easeInOutCubic(k);
+        const e = (h.ease || easeInOutCubic)(k);
         // Targets can move (functions), e.g. the mouse pointer.
         const tx = typeof h.x === 'function' ? h.x() : h.x;
         const ty = typeof h.y === 'function' ? h.y() : h.y;
@@ -449,7 +449,8 @@ export function createPhysics({ back, front, obstacles = () => [], sound = {}, o
     // stay: remain at the target (full size) instead of shrinking away; it can
     // be sent on again later. freeze: stop it spinning when it arrives.
     // spin (rad/s) / spiral (px): whirl in on a shrinking spiral, spinning up.
-    sendTo(p, { x, y, size, delay = 0, dur = 800, lift = 140, fade = 700, stay = false, freeze = false, spin = 0, spiral = 0, onArrive }) {
+    // ease: how it moves along the way (default: ease in and out).
+    sendTo(p, { x, y, size, delay = 0, dur = 800, lift = 140, fade = 700, stay = false, freeze = false, spin = 0, spiral = 0, ease = null, onArrive }) {
       if (p.z < 0) {
         p.z = -p.z;
         layers.front.scene.add(p.mesh);
@@ -457,7 +458,7 @@ export function createPhysics({ back, front, obstacles = () => [], sound = {}, o
       p.hitsCube = false;
       p.flying = false; // (re)start the flight from wherever it is now
       p.done = false;
-      p.home = { x, y, size, t0: performance.now() + delay, dur, lift, fade, stay, freeze, spin, spiral, onArrive };
+      p.home = { x, y, size, t0: performance.now() + delay, dur, lift, fade, stay, freeze, spin, spiral, ease, onArrive };
     },
 
     // Celebration: 1x1x1 cubes (a different color on every face) rain down from
