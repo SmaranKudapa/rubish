@@ -617,6 +617,41 @@ body.no-cursor, body.no-cursor * { cursor: none !important; }
 .skip.tossed kbd { visibility: hidden; }
 .skip.hint-in { animation: hint-in 0.45s var(--spring); }
 @keyframes hint-in { from { opacity: 0; transform: scale(0.4); } }
+/* Where the chip jumps out of: the hint row takes a little knock */
+.hints.knock { animation: hints-knock 0.35s ease-out; }
+@keyframes hints-knock {
+  30% { transform: translateY(3px) scaleY(0.9); }
+  65% { transform: translateY(-2px); }
+}
+/* Chip impacts: a square pixel shockwave and flying shards */
+.impact-ring {
+  position: fixed;
+  z-index: 61;
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  border: 3px solid var(--paper);
+  outline: 2px solid var(--ink);
+  pointer-events: none;
+  animation: impact-ring 0.45s steps(7) forwards;
+}
+.impact-ring.late { animation-delay: 0.08s; opacity: 0; border-width: 2px; }
+@keyframes impact-ring {
+  0% { transform: rotate(45deg) scale(0.3); opacity: 1; }
+  100% { transform: rotate(45deg) scale(calc(3 * var(--s, 1))); opacity: 0; }
+}
+.impact-shard {
+  position: fixed;
+  z-index: 61;
+  transform: translate(-50%, -50%);
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  pointer-events: none;
+  animation: impact-shard 0.55s steps(9) forwards;
+}
+@keyframes impact-shard {
+  to { transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) rotate(var(--r)) scale(0.3); opacity: 0; }
+}
 /* The flying key chip */
 .kbd-toss {
   position: fixed;

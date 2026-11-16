@@ -361,7 +361,7 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
     camera.position.set(0, 0, camZ);
     camera.lookAt(0, 0, 0);
 
-    const s = fx.shake;
+    const s = fx.shake + (fx.kick || 0); // steady shake plus any quick knock
     const md = mainDrag;
     holder.rotation.set(
       fx.tiltX + md.x + Math.sin(t * 0.8) * 0.07 * fx.sway + s * Math.sin(t * 41) * 0.06,
@@ -393,7 +393,7 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
         c.setSpread(c.spread);
         c.appliedSpread = c.spread;
       }
-      const base = tg.slot && !tg.slot.main ? 1 : fx.scale;
+      const base = tg.slot && !tg.slot.main ? 1 : fx.scale * (fx.squash ?? 1);
       tg.group.scale.setScalar(base * (1 + c.spread));
       const k = Math.max(0, (c.spread - 0.8) / (EXPLODE_AT - 0.8));
       tg.group.position.set(Math.sin(t * 71) * 0.12 * k, Math.sin(t * 89 + 1) * 0.12 * k, 0);
@@ -445,6 +445,21 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
     setSway: (to, ms = 800) => { const from = fx.sway; return tween(ms, (e) => { fx.sway = from + (to - from) * e; }); },
     setShake: (to, ms = 600) => { const from = fx.shake; return tween(ms, (e) => { fx.shake = from + (to - from) * e; }); },
     pop: () => tween(420, (_, t) => { fx.scale = 1 + Math.sin(Math.PI * t) * 0.06; }, (t) => t),
+    // Something hit the cube: it squashes in, wobbles back out and jolts.
+    // (In the one-at-a-time solve, the cube on show takes the hit.)
+    punch(strength = 1) {
+      const sl = word && word.solo != null ? word.slots[word.solo] : null;
+      return tween(700, (_, t) => {
+        const k = -0.17 * strength * Math.exp(-4.5 * t) * Math.sin(t * Math.PI * 3.4);
+        fx.squash = 1 + k;
+        fx.kick = 1.1 * strength * (1 - t) ** 2.5;
+        if (sl) sl.pop = k;
+      }, (t) => t).then(() => {
+        fx.squash = 1;
+        fx.kick = 0;
+        if (sl) sl.pop = 0;
+      });
+    },
     async celebrate() {
       await Promise.all([
         tween(1500, (e) => { cube.group.rotation.y = e * Math.PI * 2; }),

@@ -123,6 +123,12 @@ export const sfx = {
     noise({ dur: 1.0, vol: 0.45, freq: 2400, to: 60, q: 0.6, type: 'lowpass' });
     tone({ type: 'triangle', freq: 140, to: 35, dur: 0.6, vol: 0.35 });
   },
+  // Something small slamming into the cube: a heavy thump with a crunch.
+  impact() {
+    tone({ type: 'triangle', freq: 190, to: 45, dur: 0.28, vol: 0.32 });
+    noise({ dur: 0.22, vol: 0.2, freq: 1600, to: 200, q: 0.7, type: 'lowpass' });
+    tone({ type: 'square', freq: 90, to: 50, dur: 0.12, vol: 0.06 });
+  },
   whoosh() { if (throttle('whoosh', 80)) noise({ dur: 0.35, vol: 0.09, freq: 300, to: 2600, q: 1.4 }); },
   thud() { tone({ type: 'triangle', freq: 160, to: 55, dur: 0.18, vol: 0.22 }); noise({ dur: 0.08, vol: 0.08, freq: 400, type: 'lowpass' }); },
   // Confetti hitting something: a tiny pitched tick, louder for harder hits.

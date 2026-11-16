@@ -459,17 +459,59 @@ function tossKey(btn) {
   const x1 = c.left + c.width / 2, y1 = c.top + c.height / 2;
   const lift = 110 + Math.abs(y0 - y1) * 0.35; // how high it arcs above the straight line
   const spin = (Math.random() < 0.5 ? -1 : 1) * (420 + Math.random() * 300);
-  sfx.whoosh();
-  return (btn._landed = tween(700, (_, t) => {
-    const x = x0 + (x1 - x0) * t;
-    const y = y0 + (y1 - y0) * t * t - Math.sin(Math.PI * t) * lift; // up, then down into the cube
-    const s = (1 + 0.5 * Math.sin(Math.PI * t)) * (1 - 0.85 * t ** 3); // swells mid-air, shrinks into it
-    chip.style.transform = `translate(${x - x0}px, ${y - y0}px) rotate(${spin * t}deg) scale(${s})`;
+  const PREP = 0.12; // the first bit: it crouches before jumping out
+  let launched = false;
+  return (btn._landed = tween(840, (_, t) => {
+    if (t < PREP) {
+      const p = Math.sin((t / PREP) * Math.PI / 2);
+      chip.style.transform = `translateY(${p * 3}px) scale(${1 + 0.32 * p}, ${1 - 0.4 * p})`;
+      return;
+    }
+    if (!launched) {
+      // Jumps out: a little impact where it left from.
+      launched = true;
+      impactFx(x0, y0, { size: 0.8, shards: 6, reach: 26 });
+      const row = btn.parentElement;
+      row.classList.remove('knock');
+      void row.offsetWidth;
+      row.classList.add('knock');
+      sfx.pop();
+      sfx.whoosh();
+    }
+    const u = (t - PREP) / (1 - PREP);
+    const x = x0 + (x1 - x0) * u;
+    const y = y0 + (y1 - y0) * u * u - Math.sin(Math.PI * u) * lift; // up, then down into the cube
+    const s = (1 + 0.5 * Math.sin(Math.PI * u)) * (1 - 0.8 * u ** 3); // swells mid-air, shrinks into it
+    const stretch = 1 + 0.35 * Math.exp(-7 * u); // stretched tall as it springs off
+    chip.style.transform = `translate(${x - x0}px, ${y - y0}px) rotate(${spin * u}deg) scale(${s / stretch}, ${s * stretch})`;
   }, linear).then(() => {
+    // Slams into the cube.
     chip.remove();
-    stage.pop();
-    sfx.thud();
+    impactFx(x1, y1, { size: 2.4, shards: 14, reach: 110 });
+    stage.punch(1);
+    sfx.impact();
   }));
+}
+
+// A pixel shockwave (a square ring) and a spray of little shards at (x, y).
+function impactFx(x, y, { size = 1, shards = 8, reach = 60 } = {}) {
+  if (REDUCED) return;
+  const add = (cls, css) => {
+    const el = document.createElement('div');
+    el.className = cls;
+    el.style.cssText = css;
+    el.addEventListener('animationend', () => el.remove());
+    document.body.appendChild(el);
+  };
+  add('impact-ring', `left:${x}px;top:${y}px;--s:${size}`);
+  if (size > 1.5) add('impact-ring late', `left:${x}px;top:${y}px;--s:${size * 1.5}`);
+  for (let i = 0; i < shards; i++) {
+    const a = (i / shards) * Math.PI * 2 + Math.random() * 0.5;
+    const d = reach * (0.6 + Math.random() * 0.6);
+    const px = Math.round(4 + Math.random() * 3 * Math.min(size, 1.6));
+    add('impact-shard', `left:${x}px;top:${y}px;width:${px}px;height:${px}px;`
+      + `--dx:${(Math.cos(a) * d).toFixed(0)}px;--dy:${(Math.sin(a) * d).toFixed(0)}px;--r:${Math.round((Math.random() - 0.5) * 400)}deg`);
+  }
 }
 // A new letter or cube: the hint pops back in.
 function showHint(btn) {
