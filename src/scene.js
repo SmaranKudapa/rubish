@@ -214,7 +214,7 @@ export function createStage(container, cube, { onShatter = () => {} } = {}) {
     if (!t) return;
     e.preventDefault(); // don't scroll or zoom the page
     // Zooming in (scroll up / pinch apart) spreads; the other way pulls back.
-    zoomSpread(t, -e.deltaY * (e.ctrlKey ? 0.012 : 0.0028));
+    zoomSpread(t, -e.deltaY * (e.ctrlKey ? 0.028 : 0.0062));
   }, { passive: false });
 
   // Two-finger pinch on touch screens.
@@ -236,7 +236,7 @@ export function createStage(container, cube, { onShatter = () => {} } = {}) {
     if (pinch && touches.size === 2) {
       const [[ax, ay], [bx, by]] = [...touches.values()];
       const d = Math.hypot(ax - bx, ay - by);
-      zoomSpread(pinch.t, (d - pinch.d) * 0.01); // fingers apart = zoom in = spread
+      zoomSpread(pinch.t, (d - pinch.d) * 0.022); // fingers apart = zoom in = spread
       pinch.d = d;
     }
   });
