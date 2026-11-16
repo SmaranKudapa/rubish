@@ -473,12 +473,15 @@ export async function runNuke({ stage, physics, title, uiEls, input, target, dat
     if (!p) return; // no debris, no crack
     const cx2 = W * (0.22 + Math.random() * 0.56), cy2 = H * (0.18 + Math.random() * 0.2);
     // It comes at the glass slower and slower (a cartoon whistle as it
-    // closes in), then smashes into it.
-    const DUR = 2250;
+    // closes in), visibly growing all the way, then smashes into it.
+    // Colored on every side, so it reads as a solid little cube.
+    physics.colorAll(p);
+    const DUR = 4500;
     sound.slideWhistle?.(DUR / 1000);
     physics.sendTo(p, {
       x: cx2, y: cy2, size: Math.min(W, H) * 0.15, dur: DUR, lift: 0, stay: true, freeze: true,
       ease: (t) => 1 - (1 - t) ** 2.6,
+      sizeEase: (t) => t ** 1.3, // steady growth you can watch, picking up a little at the end
       onArrive: () => { crackScreen(cx2, cy2); sound.glass?.(); stuck = p; },
     });
   }, 1500);

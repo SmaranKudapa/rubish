@@ -286,7 +286,7 @@ export function createPhysics({ back, front, obstacles = () => [], sound = {}, o
         }
         // spin: tumble faster and faster on the way in.
         if (h.spin) { const sp = h.spin * (0.15 + 0.85 * e * e); p.w.set(sp * 0.5, sp, sp * 0.25); }
-        p.size = h.ss + (h.size - h.ss) * e;
+        p.size = h.ss + (h.size - h.ss) * (h.sizeEase ? h.sizeEase(k) : e);
         p.r = p.size * 0.5;
         if (k >= 1) {
           // Arrived: hand off (the element starts growing in) and shrink away
@@ -435,6 +435,12 @@ export function createPhysics({ back, front, obstacles = () => [], sound = {}, o
       color: PALETTE[p.faces.find((f) => f !== 'black')] || null,
     })),
 
+    // Give a piece a color on every side (no black insides).
+    colorAll(p) {
+      p.faces = p.faces.map((f) => (f === 'black' ? COLOR_ORDER[Math.floor(Math.random() * COLOR_ORDER.length)] : f));
+      p.mesh.material = p.faces.map((f) => mats[f]);
+    },
+
     // A random piece of debris that's free to be sent somewhere (or null).
     pickPiece() {
       const free = parts.filter((q) => !q.held && !q.home && q.size > 6);
@@ -450,7 +456,8 @@ export function createPhysics({ back, front, obstacles = () => [], sound = {}, o
     // be sent on again later. freeze: stop it spinning when it arrives.
     // spin (rad/s) / spiral (px): whirl in on a shrinking spiral, spinning up.
     // ease: how it moves along the way (default: ease in and out).
-    sendTo(p, { x, y, size, delay = 0, dur = 800, lift = 140, fade = 700, stay = false, freeze = false, spin = 0, spiral = 0, ease = null, onArrive }) {
+    // sizeEase: how it grows along the way (default: the same as ease).
+    sendTo(p, { x, y, size, delay = 0, dur = 800, lift = 140, fade = 700, stay = false, freeze = false, spin = 0, spiral = 0, ease = null, sizeEase = null, onArrive }) {
       if (p.z < 0) {
         p.z = -p.z;
         layers.front.scene.add(p.mesh);
@@ -458,7 +465,7 @@ export function createPhysics({ back, front, obstacles = () => [], sound = {}, o
       p.hitsCube = false;
       p.flying = false; // (re)start the flight from wherever it is now
       p.done = false;
-      p.home = { x, y, size, t0: performance.now() + delay, dur, lift, fade, stay, freeze, spin, spiral, ease, onArrive };
+      p.home = { x, y, size, t0: performance.now() + delay, dur, lift, fade, stay, freeze, spin, spiral, ease, sizeEase, onArrive };
     },
 
     // Celebration: 1x1x1 cubes (a different color on every face) rain down from
