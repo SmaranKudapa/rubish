@@ -1,7 +1,10 @@
-// Full-screen overlay of little 3D cubes with 2D collision physics.
+// Little 3D cubes with 2D collision physics plus a depth value.
+// Depth z is in [-1, 1]; the main cube sits at z = 0. Pieces with z < 0 are
+// drawn on a canvas behind the page (so the main cube covers them), z >= 0 on a
+// canvas in front. Pieces only collide with neighbours at a similar depth, some
+// pieces near z = 0 bounce off the main cube, and farther pieces look smaller
+// and land a little higher up the screen, like a floor going back in space.
 // Used for confetti (1x1x1 cubes) and for exploding the RUBISH title cubes.
-// Pieces fall, bounce off each other and the floor, pile up, and after a
-// delay on the ground shrink smoothly away.
 import * as THREE from 'three';
 import { PALETTE, COLOR_ORDER } from './cube3d.js';
 
@@ -9,6 +12,7 @@ const GRAVITY = 2300; // px/s^2
 const RESTITUTION = 0.32;
 const SUBSTEPS = 4;
 const CELL = 40;
+const DEPTH_TOUCH = 0.28; // pieces closer than this in depth can collide
 
 const easeInCubic = (t) => t * t * t;
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -39,14 +43,20 @@ function stickerTexture(color) {
   return t;
 }
 
-export function createPhysics(canvas) {
+function layer(canvas) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   const scene = new THREE.Scene();
-  const camera = new THREE.OrthographicCamera(0, 1, 0, -1, -3000, 3000);
   const key = new THREE.DirectionalLight(0xffffff, 1.7);
   key.position.set(0.3, 1, 0.8);
   scene.add(key, new THREE.AmbientLight(0xffffff, 1.5));
+  return { renderer, scene };
+}
+
+// obstacle(): returns the main cube's on-screen circle { x, y, r } or null.
+export function createPhysics({ back, front, obstacle = () => null }) {
+  const layers = { back: layer(back), front: layer(front) };
+  const camera = new THREE.OrthographicCamera(0, 1, 0, -1, -3000, 3000);
 
   const mats = { black: new THREE.MeshLambertMaterial({ map: stickerTexture(null) }) };
   for (const c of COLOR_ORDER) mats[c] = new THREE.MeshLambertMaterial({ map: stickerTexture(PALETTE[c]) });
@@ -56,7 +66,7 @@ export function createPhysics(canvas) {
   const resize = () => {
     W = window.innerWidth;
     H = window.innerHeight;
-    renderer.setSize(W, H, false);
+    for (const l of Object.values(layers)) l.renderer.setSize(W, H, false);
     camera.right = W;
     camera.bottom = -H;
     camera.updateProjectionMatrix();
@@ -70,17 +80,25 @@ export function createPhysics(canvas) {
   const axis = new THREE.Vector3();
   const dq = new THREE.Quaternion();
 
+  const floorOf = (p) => H - 4 - (1 - p.z) * 12; // farther pieces rest higher up
+  const depthScale = (z) => 1 + z * 0.3;
+
   function land(p, now) {
     if (p.landed === null) p.landed = now;
   }
 
-  function add({ x, y, vx, vy, size, faces, w, quat, delay = 2000, dur = 900 }) {
+  function add({ x, y, vx, vy, size, faces, z = rand(-1, 1), w, quat, delay = 2000, dur = 900 }) {
     const mesh = new THREE.Mesh(box, faces.map((f) => mats[f]));
     if (quat) mesh.quaternion.copy(quat);
     else mesh.quaternion.setFromEuler(new THREE.Euler(rand(0, 6.3), rand(0, 6.3), rand(0, 6.3)));
-    scene.add(mesh);
+    // About half the pieces near the cube's depth bounce off it.
+    const hitsCube = Math.abs(z) < 0.4 && Math.random() < 0.55;
+    if (hitsCube) z = Math.abs(z);
+    (z < 0 ? layers.back : layers.front).scene.add(mesh);
+    const s = size * depthScale(z);
     parts.push({
-      mesh, x, y, vx, vy, size, size0: size, r: size * 0.5, m: size * size,
+      mesh, x, y, vx, vy, z, hitsCube,
+      size: s, size0: s, r: s * 0.5, m: s * s,
       w: w || new THREE.Vector3(rand(-14, 14), rand(-14, 14), rand(-14, 14)),
       landed: null, delay: delay + rand(0, 700), dur, born: performance.now(),
     });
@@ -91,13 +109,14 @@ export function createPhysics(canvas) {
     }
   }
 
-  function step(dt, now) {
+  function step(dt, now, obs) {
     for (const p of parts) {
       p.vy += GRAVITY * dt;
       p.x += p.vx * dt;
       p.y += p.vy * dt;
-      if (p.y + p.r >= H) {
-        p.y = H - p.r;
+      const floor = floorOf(p);
+      if (p.y + p.r >= floor) {
+        p.y = floor - p.r;
         p.vy = p.vy > 90 ? -p.vy * RESTITUTION : Math.min(p.vy, 0);
         p.vx *= 0.985;
         // Roll along the floor; damp the other spins.
@@ -108,6 +127,24 @@ export function createPhysics(canvas) {
       }
       if (p.x - p.r < 0) { p.x = p.r; p.vx = Math.abs(p.vx) * RESTITUTION; }
       if (p.x + p.r > W) { p.x = W - p.r; p.vx = -Math.abs(p.vx) * RESTITUTION; }
+
+      // Bounce off the main cube (a static circle on screen).
+      if (obs && p.hitsCube) {
+        const dx = p.x - obs.x, dy = p.y - obs.y;
+        const R = obs.r + p.r;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < R * R && d2 > 0) {
+          const d = Math.sqrt(d2), nx = dx / d, ny = dy / d;
+          p.x = obs.x + nx * R;
+          p.y = obs.y + ny * R;
+          const vn = p.vx * nx + p.vy * ny;
+          if (vn < 0) {
+            p.vx -= (1 + 0.55) * vn * nx;
+            p.vy -= (1 + 0.55) * vn * ny;
+            p.w.z += (p.vx * ny - p.vy * nx) * 0.02;
+          }
+        }
+      }
     }
 
     const grid = new Map();
@@ -126,6 +163,7 @@ export function createPhysics(canvas) {
         for (const j of list) {
           if (j <= i) continue;
           const b = parts[j];
+          if (Math.abs(a.z - b.z) > DEPTH_TOUCH) continue;
           const dx = b.x - a.x, dy = b.y - a.y;
           const R = a.r + b.r;
           const d2 = dx * dx + dy * dy;
@@ -158,14 +196,14 @@ export function createPhysics(canvas) {
     const dt = Math.min(0.033, (t - last) / 1000);
     last = t;
     const now = performance.now();
-    for (let i = 0; i < SUBSTEPS; i++) step(dt / SUBSTEPS, now);
+    const obs = obstacle();
+    for (let i = 0; i < SUBSTEPS; i++) step(dt / SUBSTEPS, now, obs);
 
     for (const p of parts) {
       if (p.landed !== null) {
         const k = (now - p.landed - p.delay) / p.dur;
         if (k > 0) {
-          const s = 1 - easeInCubic(Math.min(1, k));
-          p.size = p.size0 * s;
+          p.size = p.size0 * (1 - easeInCubic(Math.min(1, k)));
           p.r = p.size * 0.5;
         }
       }
@@ -175,16 +213,16 @@ export function createPhysics(canvas) {
         dq.setFromAxisAngle(axis, speed * dt);
         p.mesh.quaternion.premultiply(dq);
       }
-      p.mesh.position.set(p.x, -p.y, 0);
+      p.mesh.position.set(p.x, -p.y, p.z * 100);
       p.mesh.scale.setScalar(Math.max(p.size, 0.001));
     }
     parts = parts.filter((p) => {
       const keep = p.size > 0.4 && now - p.born < 16000;
-      if (!keep) scene.remove(p.mesh);
+      if (!keep) p.mesh.parent.remove(p.mesh);
       return keep;
     });
 
-    renderer.render(scene, camera);
+    for (const l of Object.values(layers)) l.renderer.render(l.scene, camera);
     if (parts.length) requestAnimationFrame(frame);
     else running = false;
   }
@@ -212,7 +250,8 @@ export function createPhysics(canvas) {
     },
 
     // Blow a cube of the given on-screen size into its 26 cubies.
-    explode(cx, cy, size, tilt = new THREE.Euler(0.31, 0.42, 0)) {
+    explode(cx, cy, size, rx = 0.31, ry = 0.42) {
+      const tilt = new THREE.Euler(rx, ry, 0);
       const c = size / 3;
       const quat = new THREE.Quaternion().setFromEuler(tilt);
       const v = new THREE.Vector3();
@@ -228,6 +267,7 @@ export function createPhysics(canvas) {
           x: cx + v.x, y: cy - v.y,
           vx: (v.x / len) * power + rand(-80, 80),
           vy: (-v.y / len) * power - rand(250, 550),
+          z: rand(-0.6, 0.6),
           size: c * 0.97, faces, quat,
           w: new THREE.Vector3(rand(-9, 9), rand(-9, 9), rand(-9, 9)),
           delay: 2600, dur: 1500,
