@@ -675,6 +675,9 @@ solveBtn.addEventListener('click', (e) => { e.currentTarget.blur(); startSolve()
 // 'Enter to skip' hint under the button; tapping it does the same (handy on phones).
 $('skip').addEventListener('click', (e) => { e.currentTarget.blur(); finishLetter(); });
 if (!canHover) $('skip').innerHTML = '<span>tap to skip</span>';
+// 'Esc to leave' beside it: back to the start page (same as pressing Esc).
+$('leave').addEventListener('click', (e) => { e.currentTarget.blur(); goHome(); });
+if (!canHover) $('leave').innerHTML = '<span>tap to leave</span>';
 
 document.addEventListener('keydown', (e) => {
   if (ach.isOpen()) return; // the achievements menu handles its own keys
