@@ -46,7 +46,7 @@ function face(cls, colors) {
   return f;
 }
 
-// sound: optional { blip, tick, thud } effects.
+// sound: optional { blip, tick, thud, whoosh } effects.
 export function buildTitle(el, data, { onExplode, sound = {} }) {
   el.setAttribute('aria-label', 'RUBISH');
   let opening = false; // clicks are ignored while the opening plays
@@ -74,7 +74,9 @@ export function buildTitle(el, data, { onExplode, sound = {} }) {
     const rec = { mini, shaker, inner, stickers, homeColors: stickers.map((s) => s.style.getPropertyValue('--c')), busy: false, extra };
 
     mini.addEventListener('pointerenter', () => {
-      if (!rec.busy && !opening) inner.classList.add('spin');
+      if (rec.busy || opening || inner.classList.contains('spin')) return;
+      inner.classList.add('spin');
+      sound.whoosh?.();
     });
     inner.addEventListener('animationend', () => inner.classList.remove('spin'));
     mini.addEventListener('click', async () => {
@@ -176,7 +178,9 @@ export function buildTitle(el, data, { onExplode, sound = {} }) {
     // The opening: "RUBBISH" as plain text → letters flip into cubes → the
     // second B scrambles, shakes and explodes (onBoom gets the explosion) and
     // its slot closes up. Resolves once only RUBISH is left.
-    async playIntro({ onBoom }) {
+    // gate(): awaited while the plain text is up (e.g. to wait for a click so
+    // sound is allowed).
+    async playIntro({ onBoom, gate = async () => {} }) {
       opening = true;
       const extra = makeMini(EXTRA_B, 3, true);
       recs[2].mini.after(extra.mini);
@@ -185,11 +189,13 @@ export function buildTitle(el, data, { onExplode, sound = {} }) {
 
       // Letters pop in one at a time.
       all.forEach((r, i) => setTimeout(() => { r.mini.classList.add('letter-in'); sound.blip?.(i % 6); }, 150 + i * 110));
-      await sleep(150 + all.length * 110 + 650);
+      await sleep(150 + all.length * 110 + 400);
+      await gate();
+      await sleep(1650); // let the plain text sit for a moment
 
       // Each letter flips over into its cube.
       all.forEach((r, i) => setTimeout(() => { r.mini.classList.add('cube-in'); sound.tick?.(0.2); }, i * 120));
-      await sleep(all.length * 120 + 750);
+      await sleep(all.length * 120 + 1750); // and the cubes too
 
       // The second B goes off.
       extra.busy = true;
