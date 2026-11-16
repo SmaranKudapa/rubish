@@ -531,7 +531,7 @@ export async function runNuke({ stage, physics, title, uiEls, input, target, dat
     physics.colorAll(p);
     sound.slideWhistle?.(HIT_DUR / 1000);
     physics.sendTo(p, {
-      x: cx2, y: cy2, size: Math.min(W, H) * 0.15, dur: HIT_DUR, lift: 0, stay: true, freeze: true,
+      x: cx2, y: cy2, size: Math.min(W, H) * 0.2, dur: HIT_DUR, lift: 0, stay: true, freeze: true,
       ease: (t) => 1 - (1 - t) ** 2.6,
       sizeEase: (t) => t * t, // grows quadratically: slowly at first, ballooning as it gets close
       onArrive: () => { crackScreen(cx2, cy2); sound.glass?.(); stuck = p; hitDone(); },
@@ -565,11 +565,13 @@ export async function runNuke({ stage, physics, title, uiEls, input, target, dat
   };
   requestAnimationFrame(animateCloud);
 
-  // NUKE sits in the (still standing) word box for 3 more seconds...
+  // NUKE sits in the (still standing) word box until the last piece of
+  // debris has smashed into the glass...
   await sleep(700);
   for (const n of panelish) if (n) n.classList.remove('quake');
   stage.fx.shake = 0.35;
   await sleep(3000);
+  await glassHit;
 
   // ...then floats out of the box to the middle of the screen as plain text,
   // and the empty box falls away.
@@ -589,13 +591,12 @@ export async function runNuke({ stage, physics, title, uiEls, input, target, dat
   await sleep(60);
   word.classList.remove('instant'); // from here on, slow transitions
   void word.offsetWidth;
-  word.style.transition = 'transform 8.5s cubic-bezier(0.65, 0, 0.35, 1)';
+  word.style.transition = 'transform 6s cubic-bezier(0.65, 0, 0.35, 1)';
   word.style.transform = 'translate(-50%, -50%) scale(1)';
   sound.whoosh?.();
   await sleep(1800);
   stage.fx.shake = 0;
-  await sleep(6900);
-  await Promise.race([glassHit, sleep(6000)]); // the last piece has hit the glass (it always has by now)
+  await sleep(4700);
 
   // ...gains a D. The piece stuck in the glass wrenches free, and as it
   // spirals in (spinning faster and faster) the D's slot opens at the same
@@ -618,7 +619,7 @@ export async function runNuke({ stage, physics, title, uiEls, input, target, dat
   const SLOT_OPEN = 2000; // matches the slot's CSS transition
   if (stuck) {
     stuck.w.set(0, 0, 9); // a wobble as it's pulled out of the glass
-    sound.glass?.();
+    sound.whoosh?.();
     await sleep(350);
     openSlot();
     sound.whoosh?.();
