@@ -10,6 +10,7 @@ import { createPhysics } from './physics3d.js';
 import { sfx, isMuted, setMuted, audioRunning, waitForAudio } from './audio.js';
 import { createBackdrop } from './backdrop.js';
 import { installCursor, canHover } from './cursor.js';
+import { createAchievements, iconURL } from './achievements.js';
 
 const MAX_LEN = 12;
 const FACES = 'URFDLB';
@@ -23,12 +24,18 @@ const sleep = async (ms, alive = () => true) => {
 };
 
 const cursor = installCursor();
+$('ach-btn-icon').src = iconURL('trophy');
+const ach = createAchievements({
+  button: $('ach-btn'), panel: $('ach-panel'), list: $('ach-list'),
+  count: $('ach-count'), close: $('ach-close'), toast: $('toast'), sound: sfx,
+});
 RubiksCube.onTurn = (duration) => sfx.turn(duration);
 const cube = new RubiksCube();
 const stage = createStage($('cube'), cube, {
   onShatter: (pieces) => {
     physics.shatter(pieces);
     sfx.explode();
+    ach.unlock('kaboom');
     const cx = pieces.reduce((a, p) => a + p.x, 0) / pieces.length;
     const cy = pieces.reduce((a, p) => a + p.y, 0) / pieces.length;
     boom(cx, cy);
@@ -52,7 +59,7 @@ function obstacles() {
   }
   return list;
 }
-const physics = createPhysics({ back: $('physics-back'), front: $('physics-front'), obstacles, sound: sfx });
+const physics = createPhysics({ back: $('physics-back'), front: $('physics-front'), obstacles, sound: sfx, onDuplicate: () => ach.unlock('copycat') });
 createBackdrop($('backdrop'), physics);
 if (import.meta.env.DEV) window.__rubish = { physics }; // handy for poking at it in dev
 const title = buildTitle($('title'), data, {
@@ -395,6 +402,7 @@ async function finale() {
   input.focus({ preventScroll: true });
   // The one big celebration, once the word is showing on the start page.
   if (!REDUCED) setTimeout(() => physics.confetti(170), 350);
+  setTimeout(() => ach.unlock('first-word'), 900);
   sfx.fanfare();
 }
 
@@ -432,6 +440,7 @@ $('form').addEventListener('submit', (e) => {
 nextBtn.addEventListener('click', (e) => { e.currentTarget.blur(); next(); });
 
 document.addEventListener('keydown', (e) => {
+  if (ach.isOpen()) return; // the achievements menu handles its own keys
   if (e.target.closest?.('button') && (e.key === ' ' || e.key === 'Enter')) return;
   if (mode === 'steps' || mode === 'intro' || mode === 'celebrate') {
     if (e.code === 'Space' || e.key === 'ArrowRight') { e.preventDefault(); next(); }
@@ -527,9 +536,9 @@ function deliverPieces(pieces, uiEls) {
     const p = order[i];
     let x, y, size;
     if (t.cursor) {
-      // Follow the pointer while flying (it can move); aim at the arrow's middle.
-      x = () => cursor.mouse.x + 9;
-      y = () => cursor.mouse.y + 14;
+      // Follow the pointer while flying (it can move); aim at the cube cursor's middle.
+      x = () => cursor.mouse.x + cursor.center.x;
+      y = () => cursor.mouse.y + cursor.center.y;
       size = 22;
     } else if (t.main) {
       x = stageRect.left + stageRect.width / 2;
@@ -566,7 +575,7 @@ function deliverPieces(pieces, uiEls) {
 }
 
 async function runOpening() {
-  const uiEls = [...document.querySelectorAll('#swatches .swatch, #swatches-bg .swatch'), $('char'), $('go'), $('mute')];
+  const uiEls = [...document.querySelectorAll('#swatches .swatch, #swatches-bg .swatch'), $('char'), $('go'), $('mute'), $('ach-btn')];
   if (REDUCED) return finishOpening(true);
   stage.fx.main = 0;
   document.body.classList.add('opening');
@@ -585,6 +594,7 @@ async function runOpening() {
     gate: async () => {
       if (audioRunning() || isMuted()) return;
       const press = $('press');
+      press.textContent = canHover ? 'CLICK OR PRESS ANY KEY' : 'TAP TO START';
       press.classList.add('show');
       await waitForAudio();
       press.classList.remove('show');
