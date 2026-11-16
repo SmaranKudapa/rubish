@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="booting">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
@@ -9,6 +9,11 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
+  <!-- Until the opening starts, show only the wallpaper (no flash of UI before JS/CSS load). -->
+  <style>
+    html.booting, html.booting body { background: #42cbf5; }
+    html.booting body > :not(.backdrop) { visibility: hidden !important; }
+  </style>
 </head>
 <body>
   <button id="ach-btn" class="corner-btn ach-btn" type="button" aria-label="Achievements" aria-haspopup="dialog"><img id="ach-btn-icon" alt="" /></button>

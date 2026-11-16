@@ -633,6 +633,7 @@ const shuffled = (a) => {
 
 let cursorPending = false; // a piece is flying to the pointer to become the cursor
 function finishOpening(instant = false) {
+  document.documentElement.classList.remove('booting');
   document.body.classList.remove('opening');
   if (!cursorPending) cursor.show();
   for (const el of document.querySelectorAll('.pending')) el.classList.remove('pending');
@@ -714,7 +715,7 @@ async function runOpening() {
   titleEl.style.transition = 'none';
   titleEl.style.transform = `translateY(${innerHeight / 2 - (r.top + r.height / 2)}px) scale(1.5)`;
 
-  await title.playIntro({
+  const intro = title.playIntro({
     // Browsers only allow sound after a click or key press. If it isn't allowed
     // yet, ask for one while RUBBISH is on screen so the opening has sound.
     gate: async () => {
@@ -737,6 +738,10 @@ async function runOpening() {
       deliverPieces(pieces, uiEls);
     },
   });
+  // Everything is now in its opening state (UI pending, title hidden for its
+  // intro), so it's safe to reveal the page.
+  document.documentElement.classList.remove('booting');
+  await intro;
 }
 
 runOpening();
