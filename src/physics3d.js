@@ -278,8 +278,16 @@ export function createPhysics({ back, front, obstacles = () => [], sound = {} })
         p.size = h.ss + (h.size - h.ss) * e;
         p.r = p.size * 0.5;
         if (k >= 1) {
-          p.done = true;
-          h.onArrive?.();
+          // Arrived: hand off (the element starts growing in) and shrink away
+          // over h.fade ms so the swap reads as a transformation.
+          if (!h.at) {
+            h.at = now;
+            h.onArrive?.();
+          }
+          const f = Math.min(1, (now - h.at) / h.fade);
+          p.size = h.size * (1 - easeInCubic(f));
+          p.r = p.size * 0.5;
+          if (f >= 1) p.done = true;
         }
       } else if (p.landed !== null && !p.held) {
         const k = (now - p.landed - p.delay) / p.dur;
@@ -414,14 +422,14 @@ export function createPhysics({ back, front, obstacles = () => [], sound = {} })
     floorY: (z) => H - FLOOR_LIFT - (1 - z) * 14,
 
     // Send a piece flying to a screen point after delay ms, ending at the given
-    // size; it's drawn in front of the page and vanishes on arrival.
-    sendTo(p, { x, y, size, delay = 0, dur = 800, lift = 140, onArrive }) {
+    // size; it's drawn in front of the page and shrinks away after arriving.
+    sendTo(p, { x, y, size, delay = 0, dur = 800, lift = 140, fade = 700, onArrive }) {
       if (p.z < 0) {
         p.z = -p.z;
         layers.front.scene.add(p.mesh);
       }
       p.hitsCube = false;
-      p.home = { x, y, size, t0: performance.now() + delay, dur, lift, onArrive };
+      p.home = { x, y, size, t0: performance.now() + delay, dur, lift, fade, onArrive };
     },
 
     // Celebration: 1x1x1 cubes (a different color on every face) rain down from
