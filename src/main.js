@@ -438,6 +438,9 @@ $('form').addEventListener('submit', (e) => {
   start();
 });
 nextBtn.addEventListener('click', (e) => { e.currentTarget.blur(); next(); });
+// 'Enter to skip' hint under the button; tapping it does the same (handy on phones).
+$('skip').addEventListener('click', (e) => { e.currentTarget.blur(); finishLetter(); });
+if (!canHover) $('skip').innerHTML = '<span>tap to skip</span>';
 
 document.addEventListener('keydown', (e) => {
   if (ach.isOpen()) return; // the achievements menu handles its own keys
