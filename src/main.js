@@ -7,7 +7,7 @@ import {
 import { createStage, tween } from './scene.js';
 import { buildTitle } from './title.js';
 import { createPhysics } from './physics3d.js';
-import { sfx, isMuted, setMuted } from './audio.js';
+import { sfx, isMuted, setMuted, audioRunning, waitForAudio } from './audio.js';
 import { createBackdrop } from './backdrop.js';
 
 const MAX_LEN = 12;
@@ -498,15 +498,14 @@ const shuffled = (a) => {
   return b;
 };
 
-function finishOpening() {
+function finishOpening(instant = false) {
   document.body.classList.remove('opening');
   for (const el of document.querySelectorAll('.pending')) el.classList.remove('pending');
   stage.fx.main = 1;
-  if (mode === 'opening') {
-    mode = 'landing';
-    restartLoop();
-  }
+  if (mode === 'opening') mode = 'landing';
   input.focus({ preventScroll: true });
+  // Let the page settle for 2 seconds before the cube starts shuffling letters.
+  setTimeout(() => { if (mode === 'landing') restartLoop(); }, instant ? 0 : 2000);
 }
 
 // Pieces of the exploded B fly to their spots: one becomes the main cube, the
@@ -532,15 +531,14 @@ function deliverPieces(pieces, uiEls) {
       y = r.top + r.height / 2;
       size = Math.min(t.el.offsetWidth, t.el.offsetHeight) * 0.8;
     }
+    // Slow, staggered flights so you can follow each piece to its spot.
     physics.sendTo(p, {
-      x, y, size, delay: 520 + i * 60, dur: 850,
+      x, y, size, delay: 650 + i * 150, dur: 1700, fade: 900, lift: 180,
       onArrive: () => {
         if (t.main) {
-          // The main cube grows out of its piece.
-          tween(700, (e) => { stage.fx.main = e; }, easeOutBack);
+          // The main cube grows slowly out of its piece.
+          tween(1400, (e) => { stage.fx.main = e; }, easeOutBack);
           sfx.thud();
-          mode = 'landing';
-          restartLoop();
         } else {
           t.el.classList.remove('pending');
           t.el.classList.add('arrive');
@@ -555,7 +553,7 @@ function deliverPieces(pieces, uiEls) {
 
 async function runOpening() {
   const uiEls = [...document.querySelectorAll('#swatches .swatch, #swatches-bg .swatch'), $('char'), $('go'), $('mute')];
-  if (REDUCED) return finishOpening();
+  if (REDUCED) return finishOpening(true);
   stage.fx.main = 0;
   document.body.classList.add('opening');
   for (const el of uiEls) el.classList.add('pending');
@@ -567,6 +565,16 @@ async function runOpening() {
   titleEl.style.transform = `translateY(${innerHeight / 2 - (r.top + r.height / 2)}px) scale(1.5)`;
 
   await title.playIntro({
+    // Browsers only allow sound after a click or key press. If it isn't allowed
+    // yet, ask for one while RUBBISH is on screen so the opening has sound.
+    gate: async () => {
+      if (audioRunning() || isMuted()) return;
+      const press = $('press');
+      press.classList.add('show');
+      await waitForAudio();
+      press.classList.remove('show');
+      sfx.blip(4);
+    },
     onBoom: (x, y, size, rx, ry) => {
       const pieces = physics.explode(x, y, size, rx, ry);
       boom(x, y);
