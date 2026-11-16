@@ -58,8 +58,8 @@ function layer(canvas) {
 }
 
 // obstacles(): on-screen outlines (convex polygons) of the 3D cubes.
-// sound: optional { bounce, pop, whoosh } effects.
-export function createPhysics({ back, front, obstacles = () => [], sound = {} }) {
+// sound: optional { bounce, pop, whoosh } effects. onDuplicate: called when a click clones a piece.
+export function createPhysics({ back, front, obstacles = () => [], sound = {}, onDuplicate = () => {} }) {
   const layers = { back: layer(back), front: layer(front) };
   const camera = new THREE.OrthographicCamera(0, 1, 0, -1, -3000, 3000);
 
@@ -391,6 +391,7 @@ export function createPhysics({ back, front, obstacles = () => [], sound = {} })
         q.w = spinFor(q.vx);
       }
       sound.pop?.();
+      onDuplicate();
     } else {
       // Drag: throw it with the pointer's speed (or just drop it if it wasn't moving).
       const fresh = performance.now() - held.lt < 80;

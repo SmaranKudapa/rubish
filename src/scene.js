@@ -70,8 +70,10 @@ const EXPLODE_AT = 1.6; // spread beyond this blows the cube apart
 // onShatter(pieces): called with every cubie of a cube that zoomed apart too far.
 // sound: optional { thud, whoosh } effects.
 export function createStage(container, cube, { onShatter = () => {}, sound = {} } = {}) {
+  // Phones and tablets: render a bit lighter so it stays smooth.
+  const touch = !matchMedia('(hover: hover) and (pointer: fine)').matches;
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, touch ? 1.5 : 2));
   renderer.toneMapping = THREE.NoToneMapping;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.VSMShadowMap;
@@ -84,7 +86,7 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
   const key = new THREE.DirectionalLight(0xffffff, 1.8);
   key.position.set(-2.5, 4, 14);
   key.castShadow = true;
-  key.shadow.mapSize.set(2048, 2048);
+  key.shadow.mapSize.set(touch ? 1024 : 2048, touch ? 1024 : 2048);
   key.shadow.radius = 9;
   key.shadow.blurSamples = 20;
   Object.assign(key.shadow.camera, { left: -50, right: 50, top: 32, bottom: -32, near: 0.5, far: 60 });
