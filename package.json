@@ -1,0 +1,23 @@
+{
+  "name": "rubish",
+  "version": "1.0.0",
+  "description": "\"# rubish\"",
+  "scripts": {
+    "generate": "node scripts/generate.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SmaranKudapa/rubish.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/SmaranKudapa/rubish/issues"
+  },
+  "homepage": "https://github.com/SmaranKudapa/rubish#readme",
+  "devDependencies": {
+    "cubejs": "^1.3.2"
+  },
+  "private": true
+}
