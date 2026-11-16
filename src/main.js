@@ -533,7 +533,9 @@ function tossKey(btn, label = null) {
     requestAnimationFrame(frame);
   });
 
-  const SNAP = big ? 300 : 0, CROUCH = big ? 280 : 100, FLY = big ? 700 : 740;
+  // Shift+Enter: the moment it's fully stretched it snaps off, straight into the
+  // jump (no pause, no crouch), so the stretch follows through into the launch.
+  const SNAP = big ? 110 : 0, CROUCH = big ? 0 : 100, FLY = big ? 900 : 860;
   const TOTAL = SNAP + CROUCH + FLY;
   const PREP = (SNAP + CROUCH) / TOTAL;
   let launched = false, snapped = false;
@@ -565,19 +567,18 @@ function tossKey(btn, label = null) {
   const flight = () => tween(TOTAL, (_, t) => {
     const ms = t * TOTAL;
     if (ms < SNAP) {
-      // It gives: TWANG, it snaps the rest of the way out, overshooting and
-      // wobbling like a released rubber band.
+      // It gives: TWANG, it whips the rest of the way out, and right as it's
+      // fully stretched it snaps off the hint.
       const q = ms / SNAP;
       if (!snapped) {
         snapped = true;
         sfx.snap();
-        impactFx(right - w1 / 2, y0, { size: 0.9, shards: 5, reach: 22 });
         chip.classList.add('snap-flash');
       }
-      const e = 0.78 + 0.22 * (1 - Math.exp(-6 * q) * Math.cos(q * Math.PI * 4.5));
+      const e = 0.78 + 0.22 * (1 - (1 - q) ** 3);
       setWidth(w0 + (w1 - w0) * e);
       chip.style.background = '';
-      chip.style.transform = `scale(1, ${1 + 0.3 * Math.exp(-6 * q) * Math.sin(q * Math.PI * 4.5)})`;
+      chip.style.transform = `scale(${1 + 0.06 * q}, ${1 - 0.12 * q})`; // pulled taut
       return;
     }
     if (t < PREP) {
@@ -600,6 +601,9 @@ function tossKey(btn, label = null) {
       btn.classList.add('tossed');
       btn.classList.remove('tossing');
       chip.classList.remove('snap-flash');
+      setWidth(w1);
+      chip.style.background = '';
+      x0 = right - w1 / 2; // fly from wherever its middle ended up
       make3d();
       impactFx(x0, y0, big ? { size: 1.7, shards: 14, reach: 70 } : { size: 0.8, shards: 6, reach: 26 });
       const row = btn.parentElement;
@@ -623,11 +627,16 @@ function tossKey(btn, label = null) {
     const y = y0 + (y1 - y0) * u * u - Math.sin(Math.PI * u) * lift; // up, then down into the cube
     // It flies up toward the screen (looming big), then comes back down and
     // lands on the cube's face.
-    const z = (big ? 560 : 450) * Math.sin(Math.PI * u ** 0.8);
+    // Comes right up close to the screen (huge), then drops back onto the cube.
+    const P = 900; // perspective distance
+    const z = (big ? 800 : 780) * Math.sin(Math.PI * u ** 0.8);
+    // Coming closer also pushes it outward from where it started; scale its
+    // offset back down so on screen it still follows the arc onto the cube.
+    const k = (P - z) / P;
     const s = 1 - 0.2 * u * u; // a touch smaller by the time it's down at the cube
     const stretch = 1 + (big ? 0.6 : 0.35) * Math.exp(-7 * u); // stretched tall as it springs off
     const rot = 1 - (1 - u) ** 2; // tumbling fast off the hint, settling flat as it lands
-    chip.style.transform = `perspective(900px) translate(${x - x0}px, ${y - y0}px) translateZ(${z}px) rotate(${spin * rot}deg) `
+    chip.style.transform = `perspective(${P}px) translate(${(x - x0) * k}px, ${(y - y0) * k}px) translateZ(${z}px) rotate(${spin * rot}deg) `
       + `rotateX(${tumbleX * rot}deg) rotateY(${tumbleY * rot}deg) scale(${s / stretch}, ${s * stretch})`;
   }, linear).then(() => {
     // Slams into the cube and bursts into pieces of cube confetti.
