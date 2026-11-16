@@ -116,6 +116,38 @@ function roundedRect(size, r) {
   return new THREE.ShapeGeometry(shape, 6);
 }
 
+// Swipe trail shader: only the part of the arc the turn has swept so far is
+// drawn, brightest at the leading edge and soft at the band's edges.
+const TRAIL_VS = /* glsl */ `
+  varying vec2 vUv;
+  void main() {
+    vUv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }`;
+// Retro look: the arc is cut into a grid of square "pixels" with gaps between
+// them. Brightness comes in a few hard steps, and pixels toward the tail drop
+// out at random, so it reads like an 8-bit sprite trail.
+const TRAIL_FS = /* glsl */ `
+  uniform float uProgress;
+  uniform float uFade;
+  uniform float uDir;
+  uniform vec2 uCells;
+  varying vec2 vUv;
+  float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+  void main() {
+    vec2 g = floor(vUv * uCells);
+    vec2 f = fract(vUv * uCells);
+    if (f.x < 0.14 || f.y < 0.14) discard;        // gaps between pixels
+    float cx = (g.x + 0.5) / uCells.x;
+    float u = uDir > 0.0 ? cx : 1.0 - cx;          // 0 where the turn started
+    if (u > uProgress) discard;
+    float s = u / max(uProgress, 0.001);           // 0 at the tail, 1 at the head
+    if (hash(g) > s * 1.15 + 0.1) discard;         // scattered pixels near the tail
+    float edge = (g.y < 0.5 || g.y > uCells.y - 1.5) ? 0.6 : 1.0;
+    float a = floor(pow(s, 1.3) * 4.0 + 0.5) / 4.0; // hard brightness steps
+    gl_FragColor = vec4(1.0, 1.0, 1.0, a * edge * uFade * 0.8);
+  }`;
+
 const tmpM = new THREE.Matrix4();
 function snap(c, scale = 1) {
   c.position.set(Math.round(c.position.x / SP) * SP, Math.round(c.position.y / SP) * SP, Math.round(c.position.z / SP) * SP);
@@ -217,17 +249,65 @@ export class RubiksCube {
       finish();
       return Promise.resolve();
     }
+    const trail = this._trail(axis, layer, angle);
     RubiksCube.onTurn?.(duration);
     return new Promise((resolve) => {
       const t0 = performance.now();
       const step = (now) => {
         const t = Math.min(1, (now - t0) / duration);
-        pivot.rotation[axis] = angle * ease(t);
+        const e = ease(t);
+        pivot.rotation[axis] = angle * e;
+        trail.progress(e);
         if (t < 1) requestAnimationFrame(step);
-        else { finish(); resolve(); }
+        else { finish(); trail.fade(); resolve(); }
       };
       requestAnimationFrame(step);
     });
+  }
+
+  // A white swoosh that wraps around the turning layer on the side facing the
+  // viewer, sweeping along with the turn and fading out after it.
+  _trail(axis, layer, angle) {
+    const len = Math.abs(angle);
+    const dir = new THREE.Vector3(axis === 'x' ? 1 : 0, axis === 'y' ? 1 : 0, axis === 'z' ? 1 : 0);
+    const orient = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+    // Center the arc on the visible side: toward the front-top-right corner,
+    // flattened onto the plane of the turn.
+    const toward = new THREE.Vector3(1, 1, 1);
+    toward.addScaledVector(dir, -toward.dot(dir)).applyQuaternion(orient.clone().invert());
+    const center = Math.atan2(toward.x, toward.z);
+    const whole = layer === null;
+    const geo = new THREE.CylinderGeometry(2.3, 2.3, whole ? 3.2 : 0.95, 48, 1, true, center - len / 2, len);
+    const mat = new THREE.ShaderMaterial({
+      uniforms: {
+        uProgress: { value: 0 }, uFade: { value: 1 }, uDir: { value: Math.sign(angle) },
+        // About 0.24 world units per pixel along the arc and across the band.
+        uCells: { value: new THREE.Vector2(Math.round((2.3 * len) / 0.24), whole ? 13 : 4) },
+      },
+      vertexShader: TRAIL_VS,
+      fragmentShader: TRAIL_FS,
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.quaternion.copy(orient);
+    if (!whole) mesh.position.copy(dir).multiplyScalar(layer * SP);
+    mesh.renderOrder = 2;
+    this.group.add(mesh);
+    return {
+      progress: (e) => { mat.uniforms.uProgress.value = Math.min(1, Math.max(0, e)); },
+      fade: () => {
+        const t0 = performance.now();
+        const f = (now) => {
+          const k = Math.min(1, (now - t0) / 280);
+          mat.uniforms.uFade.value = 1 - k;
+          if (k < 1) requestAnimationFrame(f);
+          else { this.group.remove(mesh); geo.dispose(); mat.dispose(); }
+        };
+        requestAnimationFrame(f);
+      },
+    };
   }
 
   // Undo every recorded move, returning to the solved state.
