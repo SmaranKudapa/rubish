@@ -12,7 +12,7 @@ import * as THREE from 'three';
 import { PALETTE } from './cube3d.js';
 import { buildCube } from './title.js';
 
-const TOTAL = 10000; // launch to impact
+const TOTAL = 22000; // launch to impact (it takes its time)
 const LAUNCH = 1200; // the launcher's rise before the missile fires
 const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 const easeOut = (t) => 1 - Math.pow(1 - t, 3);
@@ -87,7 +87,7 @@ function buildMissile() {
   return { root, spin, flame };
 }
 
-// ---------- One smooth path, travelled at constant speed ----------
+// ---------- The flight path: loops around the screen, travelled at constant speed ----------
 function cubic(p0, p1, p2, p3, t) {
   const u = 1 - t;
   return [
@@ -95,23 +95,100 @@ function cubic(p0, p1, p2, p3, t) {
     u * u * u * p0[1] + 3 * u * u * t * p1[1] + 3 * u * t * t * p2[1] + t * t * t * p3[1],
   ];
 }
-function arcPath(p0, p1, p2, p3) {
+
+// Points: straight up out of the launcher, two big wobbly spiral loops around
+// the middle of the screen (stalling for suspense), then a swoop onto the target.
+function flightPoints(W, H, start, target) {
   const pts = [];
-  const lens = [0];
-  for (let i = 0; i <= 400; i++) {
-    pts.push(cubic(p0, p1, p2, p3, i / 400));
-    if (i) lens.push(lens[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  const cx = W * 0.5, cy = H * 0.46;
+  const rx = Math.max(cx - start[0], W * 0.25), ry = H * 0.3;
+  const loopStart = [cx - rx, cy];
+  for (let i = 0; i <= 40; i++) pts.push(cubic(start, [start[0], lerp(start[1], cy, 0.6)], [loopStart[0], cy + ry * 0.3], loopStart, i / 40));
+  // Loops: from the left-most point, clockwise on screen, two turns, slowly
+  // tightening, with a little wobble so it never looks mechanical.
+  const turns = 2;
+  const N = 600;
+  for (let i = 1; i <= N; i++) {
+    const k = i / N;
+    const a = Math.PI + k * turns * Math.PI * 2;
+    const shrink = 1 - 0.32 * k;
+    const wob = 1 + 0.08 * Math.sin(k * Math.PI * 9);
+    pts.push([cx + Math.cos(a) * rx * shrink * wob, cy - Math.sin(a) * ry * shrink * wob]);
   }
+  // Swoop: up over the top and down onto the target.
+  const last = pts[pts.length - 1];
+  for (let i = 1; i <= 120; i++) {
+    pts.push(cubic(last, [last[0], last[1] - ry * 1.1], [lerp(last[0], target[0], 0.6), Math.max(10, target[1] - H * 0.12)], target, i / 120));
+  }
+  return pts;
+}
+
+// Arc-length lookup: point and heading at a fraction of the total length.
+function constantSpeed(pts) {
+  const lens = [0];
+  for (let i = 1; i < pts.length; i++) lens.push(lens[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
   const total = lens[lens.length - 1];
-  // Point and heading at a fraction of the total length.
+  let i = 1;
   return (f) => {
     const s = clamp01(f) * total;
-    let i = 1;
+    if (lens[i - 1] > s) i = 1;
     while (i < lens.length - 1 && lens[i] < s) i++;
     const k = (s - lens[i - 1]) / (lens[i] - lens[i - 1] || 1);
     const a = pts[i - 1], b = pts[i];
     return { x: lerp(a[0], b[0], k), y: lerp(a[1], b[1], k), dx: b[0] - a[0], dy: b[1] - a[1] };
   };
+}
+
+// ---------- A cracked screen (pixel style), from a point of impact ----------
+function crackScreen(x, y) {
+  const W = innerWidth, H = innerHeight;
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  const c = document.createElement('canvas');
+  c.className = 'nuke-crack';
+  c.width = Math.round(W * dpr);
+  c.height = Math.round(H * dpr);
+  document.body.appendChild(c);
+  const g = c.getContext('2d');
+  g.scale(dpr, dpr);
+  const P = 2; // crack "pixel" size
+  const plot = (px, py, col) => { g.fillStyle = col; g.fillRect(Math.round(px / P) * P, Math.round(py / P) * P, P, P); };
+  const line = (x0, y0, x1, y1) => {
+    const n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / P));
+    for (let i = 0; i <= n; i++) {
+      const px = lerp(x0, x1, i / n), py = lerp(y0, y1, i / n);
+      plot(px + 1.5, py + 1.5, 'rgba(0, 0, 0, 0.45)');
+      plot(px, py, 'rgba(255, 255, 255, 0.92)');
+    }
+  };
+  const crack = (sx, sy, ang, len, depth) => {
+    let px = sx, py = sy, a = ang, done = 0;
+    while (done < len) {
+      const step = 22 + Math.random() * 34;
+      a += (Math.random() - 0.5) * 0.28; // glass cracks run fairly straight
+      const nx = px + Math.cos(a) * step, ny = py + Math.sin(a) * step;
+      line(px, py, nx, ny);
+      if (depth < 1 && Math.random() < 0.13) crack(nx, ny, a + (Math.random() < 0.5 ? -1 : 1) * (0.5 + Math.random() * 0.5), len * 0.3, depth + 1);
+      px = nx; py = ny; done += step;
+    }
+  };
+  // Glare and a shattered core
+  const glare = g.createRadialGradient(x, y, 0, x, y, 70);
+  glare.addColorStop(0, 'rgba(255, 255, 255, 0.35)');
+  glare.addColorStop(1, 'rgba(255, 255, 255, 0)');
+  g.fillStyle = glare;
+  g.fillRect(x - 70, y - 70, 140, 140);
+  const spokes = 8 + Math.floor(Math.random() * 4);
+  for (let k = 0; k < spokes; k++) crack(x, y, (k / spokes) * Math.PI * 2 + Math.random() * 0.4, 110 + Math.random() * Math.max(W, H) * 0.28, 0);
+  // Broken rings around the impact
+  for (const r of [16, 38, 70]) {
+    const n = 18;
+    for (let k = 0; k < n; k++) {
+      if (Math.random() < 0.35) continue;
+      const a0 = (k / n) * Math.PI * 2, a1 = ((k + 1) / n) * Math.PI * 2;
+      const r0 = r * (0.85 + Math.random() * 0.3), r1 = r * (0.85 + Math.random() * 0.3);
+      line(x + Math.cos(a0) * r0, y + Math.sin(a0) * r0, x + Math.cos(a1) * r1, y + Math.sin(a1) * r1);
+    }
+  }
 }
 
 // ---------- Animated pixel mushroom cloud ----------
@@ -200,7 +277,7 @@ export async function runNuke({ stage, physics, title, uiEls, input, target, dat
   // The path: straight up out of the launcher, one smooth arc, down onto the button.
   const tr = target.getBoundingClientRect();
   const tx = tr.left + tr.width / 2, ty = tr.top + tr.height / 2;
-  const path = arcPath([lx, ly - lh / 2], [lx, H * 0.2], [W * 0.55, H * 0.02], [tx, ty]);
+  const path = constantSpeed(flightPoints(W, H, [lx, ly - lh / 2], [tx, ty]));
 
   const panelish = [document.querySelector('.title'), document.querySelector('.panel')];
   sound.siren?.(TOTAL / 1000);
@@ -284,6 +361,15 @@ export async function runNuke({ stage, physics, title, uiEls, input, target, dat
   stage.shatterAll();
   title.explodeAll();
   physics.confetti(160);
+  setTimeout(() => {
+    const p = physics.pickPiece();
+    if (!p) return; // no debris, no crack
+    const cx2 = W * (0.25 + Math.random() * 0.5), cy2 = H * (0.2 + Math.random() * 0.4);
+    physics.sendTo(p, {
+      x: cx2, y: cy2, size: Math.min(W, H) * 0.22, dur: 750, lift: 0, fade: 450,
+      onArrive: () => { crackScreen(cx2, cy2); sound.glass?.(); },
+    });
+  }, 1500);
 
   // Bits of the UI shake loose and fall, at random.
   for (const n of panelish) if (n) { n.style.transform = ''; n.classList.add('quake'); }
@@ -333,16 +419,21 @@ export async function runNuke({ stage, physics, title, uiEls, input, target, dat
   stage.fx.shake = 0;
   await sleep(6900);
 
-  // ...slowly gains a D...
-  word.appendChild(cubes[4]);
-  void cubes[4].offsetWidth;
-  cubes[4].classList.add('letter-in');
+  // ...gains a D: its slot opens slowly so NUKE slides over, then it fades in...
+  const d = cubes[4];
+  d.classList.add('squeezed');
+  word.appendChild(d);
+  void d.offsetWidth;
+  d.classList.remove('squeezed');
+  sound.whoosh?.();
+  await sleep(1600);
+  d.classList.add('letter-in');
   sound.blip?.(5);
-  await sleep(3500);
+  await sleep(2800);
 
-  // ...and the letters slowly flip into cubes, like the opening.
-  cubes.forEach((c, i) => setTimeout(() => { c.classList.add('cube-in'); sound.tick?.(0.2); }, i * 700));
-  await sleep(cubes.length * 700 + 3200);
+  // ...and the letters flip into cubes, like the opening.
+  cubes.forEach((c, i) => setTimeout(() => { c.classList.add('cube-in'); sound.tick?.(0.2); }, i * 120));
+  await sleep(cubes.length * 120 + 900);
 
   // ---------- Aftermath ----------
   const prompt = el('nuke-sub', layer, 'p');
