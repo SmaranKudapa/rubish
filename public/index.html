@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Rubish</title>
+  <style>
+    :root { --bg: #fff; --fg: #111; --muted: #666; --line: #ddd; --hl: #fff3b0; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #111; --fg: #eee; --muted: #999; --line: #333; --hl: #4a4220; } }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, sans-serif; }
+    main { max-width: 760px; margin: 0 auto; padding: 24px 16px 64px; }
+    h1 { margin: 0 0 4px; }
+    p.sub { margin: 0 0 20px; color: var(--muted); }
+    form { display: flex; gap: 8px; margin-bottom: 24px; }
+    input { width: 80px; font-size: 28px; text-align: center; text-transform: uppercase; padding: 4px; border: 2px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); }
+    button { font-size: 16px; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); cursor: pointer; }
+    button:disabled { opacity: .4; cursor: default; }
+    .err { color: #c00; }
+    .row { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+    .face { display: grid; grid-template-columns: repeat(3, var(--s, 18px)); gap: 2px; padding: 2px; background: #000; border-radius: 3px; }
+    .face i { width: var(--s, 18px); height: var(--s, 18px); border-radius: 2px; }
+    .net { display: grid; grid-template-columns: repeat(4, auto); gap: 4px; }
+    .net .blank { visibility: hidden; }
+    .label { font-size: 12px; color: var(--muted); margin-top: 6px; }
+    .controls { display: flex; gap: 8px; align-items: center; margin: 16px 0; flex-wrap: wrap; }
+    ol.moves { padding-left: 28px; columns: 2; column-gap: 24px; }
+    ol.moves li { cursor: pointer; padding: 2px 6px; border-radius: 4px; break-inside: avoid; }
+    ol.moves li.active { background: var(--hl); }
+    ol.moves b { display: inline-block; min-width: 2.5em; font-family: ui-monospace, monospace; }
+    .seq { font-family: ui-monospace, monospace; font-size: 18px; word-spacing: 4px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; }
+    details { margin-top: 24px; color: var(--muted); }
+    @media (max-width: 520px) { ol.moves { columns: 1; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Rubish</h1>
+  <p class="sub">Type a letter or digit to get the moves that make a solved Rubik's cube show it on the front face.</p>
+
+  <form id="f">
+    <input id="ch" maxlength="1" autocomplete="off" autofocus aria-label="Character (A-Z, 0-9)" />
+    <button>Show steps</button>
+  </form>
+  <div id="out"></div>
+
+  <details>
+    <summary>How to read the moves</summary>
+    <p>Start with a <b>solved</b> cube, <b>white on top</b> and <b>green facing you</b>. Keep it in that orientation the whole time.</p>
+    <p>U, D, R, L, F, B turn the Up, Down, Right, Left, Front, Back face a quarter turn clockwise, as if you were looking straight at that face.
+      A prime (<code>'</code>) means counter-clockwise; a <code>2</code> means a half turn.</p>
+    <p>A 3x3 face is tiny, so some characters share a shape (2/Z, 5/S, 9/Q). The center sticker can't move, so the letter color depends on whether the center is part of the letter.</p>
+  </details>
+</main>
+
+<script>
+  const COLORS = { U: '#ffffff', R: '#d0021b', F: '#16a34a', D: '#ffd500', L: '#ff7a00', B: '#1d4ed8' };
+  const NAMES = { U: 'white', R: 'red', F: 'green', D: 'yellow', L: 'orange', B: 'blue' };
+  const FACE_NAMES = { U: 'top (Up)', D: 'bottom (Down)', R: 'right', L: 'left', F: 'front', B: 'back' };
+  const FACE_ORDER = ['U', 'R', 'F', 'D', 'L', 'B']; // facelet string order
+
+  let data = null, cur = null, step = 0;
+  const out = document.getElementById('out');
+
+  fetch('solutions.json').then((r) => r.json()).then((d) => { data = d; route(); });
+
+  function describe(m) {
+    const face = FACE_NAMES[m[0]];
+    if (m[1] === '2') return `Turn the ${face} face 180°`;
+    if (m[1] === "'") return `Turn the ${face} face counter-clockwise`;
+    return `Turn the ${face} face clockwise`;
+  }
+
+  function faceEl(stickers, size) {
+    const el = document.createElement('div');
+    el.className = 'face';
+    if (size) el.style.setProperty('--s', size + 'px');
+    for (const c of stickers) {
+      const i = document.createElement('i');
+      i.style.background = COLORS[c];
+      el.appendChild(i);
+    }
+    return el;
+  }
+
+  function netEl(state) {
+    const face = (f) => faceEl(state.slice(FACE_ORDER.indexOf(f) * 9, FACE_ORDER.indexOf(f) * 9 + 9));
+    const blank = () => Object.assign(document.createElement('div'), { className: 'blank' });
+    const net = document.createElement('div');
+    net.className = 'net';
+    [blank(), face('U'), blank(), blank(), face('L'), face('F'), face('R'), face('B'), blank(), face('D'), blank(), blank()]
+      .forEach((x) => net.appendChild(x));
+    return net;
+  }
+
+  function render() {
+    const d = data[cur];
+    const n = d.moves.length;
+    out.innerHTML = `
+      <div class="row">
+        <div><div id="target"></div><div class="label">Goal: ${NAMES[d.letterColor]} "${cur}" on ${NAMES[d.backgroundColor]}</div></div>
+        <div><div id="net"></div><div class="label">Cube after step ${step} of ${n}</div></div>
+      </div>
+      <div class="controls">
+        <button id="first">⏮</button><button id="prev">◀ Prev</button>
+        <button id="next">Next ▶</button><button id="last">⏭</button>
+        <span id="now"></span>
+      </div>
+      <div class="seq">${d.moves.join(' ')}</div>
+      <ol class="moves">${d.moves.map((m, i) => `<li data-i="${i + 1}"><b>${m}</b> ${describe(m)}</li>`).join('')}</ol>`;
+    out.querySelector('#target').appendChild(faceEl(d.states[n].slice(18, 27), 40));
+    out.querySelector('#net').appendChild(netEl(d.states[step]));
+    out.querySelector('#now').textContent = step === 0 ? 'Start: solved cube' : `Step ${step}: ${d.moves[step - 1]} — ${describe(d.moves[step - 1])}`;
+    out.querySelectorAll('ol.moves li').forEach((li) => {
+      li.classList.toggle('active', Number(li.dataset.i) === step);
+      li.onclick = () => go(Number(li.dataset.i));
+    });
+    const b = (id, s, dis) => { const el = out.querySelector(id); el.disabled = dis; el.onclick = () => go(s); };
+    b('#first', 0, step === 0); b('#prev', step - 1, step === 0);
+    b('#next', step + 1, step === n); b('#last', n, step === n);
+  }
+
+  function go(s) { step = s; render(); }
+
+  function show(ch) {
+    ch = (ch || '').toUpperCase();
+    document.getElementById('ch').value = ch;
+    if (!data[ch]) { out.innerHTML = ch ? `<p class="err">Only A–Z and 0–9 are supported.</p>` : ''; return; }
+    cur = ch; step = 0; render();
+  }
+
+  function route() { show(decodeURIComponent(location.hash.slice(1))); }
+  window.addEventListener('hashchange', route);
+  document.getElementById('f').onsubmit = (e) => {
+    e.preventDefault();
+    location.hash = document.getElementById('ch').value.toUpperCase();
+  };
+  document.addEventListener('keydown', (e) => {
+    if (!cur || e.target.tagName === 'INPUT') return;
+    if (e.key === 'ArrowRight' && step < data[cur].moves.length) go(step + 1);
+    if (e.key === 'ArrowLeft' && step > 0) go(step - 1);
+  });
+</script>
+</body>
+</html>
