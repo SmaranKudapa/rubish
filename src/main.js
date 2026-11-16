@@ -535,7 +535,32 @@ function tossKey(btn, label = null) {
   const SNAP = big ? 300 : 0, CROUCH = big ? 280 : 100, FLY = big ? 700 : 740;
   const TOTAL = SNAP + CROUCH + FLY;
   const PREP = (SNAP + CROUCH) / TOTAL;
-  let launched = false, snapped = false, lastGhost = 0;
+  let launched = false, snapped = false;
+  // Tumbling end over end in 3D once it's off.
+  const sgn = () => (Math.random() < 0.5 ? -1 : 1);
+  const tumbleX = sgn() * (300 + Math.random() * 240) * (big ? 1.4 : 1);
+  const tumbleY = sgn() * (140 + Math.random() * 200) * (big ? 1.4 : 1);
+  // Turn the flat chip into a solid 3D keycap: a front and back with the key's
+  // name, and grey sides, all around its middle.
+  const make3d = () => {
+    const w = parseFloat(chip.style.width), h = r.height, d = Math.max(8, Math.round(h * 0.6));
+    const text = chip.textContent;
+    chip.textContent = '';
+    chip.classList.add('kbd-3d');
+    const face = (cls, css, txt = '') => {
+      const f = document.createElement('div');
+      f.className = `f ${cls}`;
+      f.style.cssText = css;
+      f.textContent = txt;
+      chip.appendChild(f);
+    };
+    face('front', `inset:0;transform:translateZ(${d / 2}px)`, text);
+    face('back', `inset:0;transform:rotateY(180deg) translateZ(${d / 2}px)`, text);
+    face('side', `left:0;width:${w}px;top:${(h - d) / 2}px;height:${d}px;transform:rotateX(90deg) translateZ(${h / 2}px)`);
+    face('side', `left:0;width:${w}px;top:${(h - d) / 2}px;height:${d}px;transform:rotateX(-90deg) translateZ(${h / 2}px)`);
+    face('side', `top:0;height:${h}px;left:${(w - d) / 2}px;width:${d}px;transform:rotateY(-90deg) translateZ(${w / 2}px)`);
+    face('side', `top:0;height:${h}px;left:${(w - d) / 2}px;width:${d}px;transform:rotateY(90deg) translateZ(${w / 2}px)`);
+  };
   const flight = () => tween(TOTAL, (_, t) => {
     const ms = t * TOTAL;
     if (ms < SNAP) {
@@ -574,6 +599,7 @@ function tossKey(btn, label = null) {
       btn.classList.add('tossed');
       btn.classList.remove('tossing');
       chip.classList.remove('snap-flash');
+      make3d();
       impactFx(x0, y0, big ? { size: 1.7, shards: 14, reach: 70 } : { size: 0.8, shards: 6, reach: 26 });
       const row = btn.parentElement;
       row.classList.remove('knock');
@@ -596,15 +622,8 @@ function tossKey(btn, label = null) {
     const y = y0 + (y1 - y0) * u * u - Math.sin(Math.PI * u) * lift; // up, then down into the cube
     const s = (1 + 0.5 * Math.sin(Math.PI * u)) * (1 - 0.8 * u ** 3); // swells mid-air, shrinks into it
     const stretch = 1 + (big ? 0.6 : 0.35) * Math.exp(-7 * u); // stretched tall as it springs off
-    chip.style.transform = `translate(${x - x0}px, ${y - y0}px) rotate(${spin * u}deg) scale(${s / stretch}, ${s * stretch})`;
-    // The big one leaves a trail of fading afterimages.
-    if (big && ms - lastGhost > 26 && u < 0.92) {
-      lastGhost = ms;
-      const g = chip.cloneNode(true);
-      g.classList.add('ghost');
-      g.addEventListener('animationend', () => g.remove());
-      document.body.appendChild(g);
-    }
+    chip.style.transform = `perspective(700px) translate(${x - x0}px, ${y - y0}px) rotate(${spin * u}deg) `
+      + `rotateX(${tumbleX * u}deg) rotateY(${tumbleY * u}deg) scale(${s / stretch}, ${s * stretch})`;
   }, linear).then(() => {
     // Slams into the cube and bursts into pieces of cube confetti.
     chip.remove();
