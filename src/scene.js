@@ -1,14 +1,18 @@
-// Three.js stage: the main cube (draggable, with idle sway and shake), the
-// celebration spin, and the finale where every finished letter spells the word.
+// Three.js stage: the main cube (draggable, with idle sway, shake and a soft
+// shadow on the wall behind it), the celebration spin, and the finale where
+// the main cube slides into place and the earlier letters drop in beside it.
 import * as THREE from 'three';
 import { easeInOutCubic, easeOutBack } from './cube3d.js';
 
 const SPACING = 4.4; // distance between cubes in the finale
+const SLOT_TILT = [0.3, -0.32]; // x/y tilt of each cube in the finale
+const HOME_TILT = [0.5, -0.62]; // x/y tilt of the main cube normally
+const TAN15 = Math.tan(THREE.MathUtils.degToRad(15));
 const easeInCubic = (t) => t * t * t;
-const easeInBack = (t) => 2.7 * t * t * t - 1.7 * t * t;
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const castShadows = (obj) => obj.traverse((m) => { if (m.isMesh) m.castShadow = true; });
 
 export function tween(duration, fn, ease = easeInOutCubic) {
   return new Promise((resolve) => {
@@ -27,28 +31,50 @@ export function createStage(container, cube) {
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.toneMapping = THREE.NoToneMapping;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.VSMShadowMap;
   container.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 200);
-  const key = new THREE.DirectionalLight(0xffffff, 1.9);
-  key.position.set(3, 8, 6);
-  scene.add(key, new THREE.AmbientLight(0xffffff, 1.5));
 
-  // holder: tilt, drag, sway, shake. cube.group: spins/scales in celebrations.
+  // Key light from the upper left, casting a soft shadow down-right onto the wall.
+  const key = new THREE.DirectionalLight(0xffffff, 1.8);
+  key.position.set(-2.5, 4, 14);
+  key.castShadow = true;
+  key.shadow.mapSize.set(2048, 2048);
+  key.shadow.radius = 14;
+  key.shadow.blurSamples = 20;
+  Object.assign(key.shadow.camera, { left: -50, right: 50, top: 32, bottom: -32, near: 0.5, far: 60 });
+  scene.add(key, new THREE.AmbientLight(0xffffff, 1.45));
+
+  // Invisible wall behind the cube that only shows shadows.
+  const wall = new THREE.Mesh(
+    new THREE.PlaneGeometry(240, 240),
+    new THREE.ShadowMaterial({ color: 0x05394f, opacity: 0.32 }),
+  );
+  wall.position.z = -3.8;
+  wall.receiveShadow = true;
+  scene.add(wall);
+
+  // holder: position, tilt, drag, sway, shake. cube.group: celebration spin/scale.
   const holder = new THREE.Group();
   holder.add(cube.group);
+  castShadows(cube.group);
   scene.add(holder);
 
-  const fx = { sway: 1, glow: 0, scale: 1, tiltX: 0.5, tiltY: -0.62, lift: 0, shake: 0, main: 1, mainY: 0 };
-  let word = null; // finale: { group, slots: [{ g, y }], start }
+  const fx = {
+    sway: 1, glow: 0, scale: 1, lift: 0, shake: 0, main: 1, mainY: 0, posX: 0,
+    tiltX: HOME_TILT[0], tiltY: HOME_TILT[1],
+  };
+  let word = null; // finale: { group, slots: [{ g, y }], n, amp, start }
   let aspect = 1;
 
   const targetZ = () => {
     let d = 13.5 / Math.min(1, aspect * 1.1);
     if (word) {
-      const half = ((word.slots.length - 1) / 2) * SPACING + 3;
-      d = Math.max(d, half / (Math.tan(THREE.MathUtils.degToRad(15)) * aspect));
+      const half = ((word.n - 1) / 2) * SPACING + 3;
+      d = Math.max(d, half / (TAN15 * aspect));
     }
     return d;
   };
@@ -132,7 +158,7 @@ export function createStage(container, cube) {
       s * (Math.sin(t * 47) * 0.08 + Math.sin(t * 29) * 0.05),
     );
     holder.position.set(
-      s * (Math.sin(t * 53) * 0.17 + Math.sin(t * 37.3) * 0.11),
+      fx.posX + s * (Math.sin(t * 53) * 0.17 + Math.sin(t * 37.3) * 0.11),
       Math.sin(t * 1.3) * 0.14 * fx.sway + fx.lift + fx.mainY + s * Math.sin(t * 61) * 0.13,
       0,
     );
@@ -144,16 +170,19 @@ export function createStage(container, cube) {
     if (word) {
       word.group.rotation.set(drag.x, drag.y, 0);
       word.slots.forEach((sl, i) => {
-        sl.g.position.y = sl.y + Math.sin(t * 2 + i * 0.7) * 0.22;
+        if (!sl) return;
+        sl.g.position.y = sl.y + Math.sin(t * 2 + i * 0.7) * 0.22 * word.amp;
         // A spin ripples across the word every few seconds.
         const local = t - word.start - i * 0.15;
         const l = local > 0 ? local % 4.5 : 99;
-        sl.g.rotation.y = -0.32 + (l < 1.2 ? easeInOutCubic(l / 1.2) * Math.PI * 2 : 0);
+        sl.g.rotation.y = SLOT_TILT[1] + (l < 1.2 ? easeInOutCubic(l / 1.2) * Math.PI * 2 : 0);
       });
     }
 
     renderer.render(scene, camera);
   });
+
+  const slotX = (i, n) => (i - (n - 1) / 2) * SPACING;
 
   return {
     fx,
@@ -173,41 +202,86 @@ export function createStage(container, cube) {
       Object.assign(fx, { scale: 1, lift: 0, glow: 0 });
     },
 
-    hasWord: () => !!word,
-
-    // Shrink the main cube away and drop in one cube per finished letter.
-    async showWord(cubes) {
-      await tween(450, (e) => { fx.main = 1 - e; }, easeInBack);
-      fx.main = 0;
-      const group = new THREE.Group();
-      scene.add(group);
-      const n = cubes.length;
-      const slots = cubes.map((c, i) => {
-        const g = new THREE.Group();
-        g.add(c.group);
-        g.position.x = (i - (n - 1) / 2) * SPACING;
-        g.rotation.x = 0.3;
-        group.add(g);
-        return { g, y: 16 };
-      });
-      word = { group, slots, start: Infinity };
-      await Promise.all(slots.map((sl, i) =>
-        wait(i * 140).then(() => tween(950, (e) => { sl.y = 16 * (1 - e); }, easeOutBack))));
-      word.start = clock.elapsedTime + 0.6;
+    // The main cube's circle on screen, for confetti to bounce off.
+    obstacle() {
+      if (!holder.visible || cube.group.parent !== holder) return null;
+      const rect = container.getBoundingClientRect();
+      const v = holder.getWorldPosition(new THREE.Vector3()).project(camera);
+      const pxPerUnit = rect.height / 2 / (camZ * TAN15);
+      return {
+        x: rect.left + ((v.x + 1) / 2) * rect.width,
+        y: rect.top + ((1 - v.y) / 2) * rect.height,
+        r: 2.15 * fx.main * fx.scale * pxPerUnit,
+      };
     },
 
-    // Fly the word cubes away and bring the main cube back in from the top.
+    hasWord: () => !!word,
+
+    // Slide the main cube (showing the last letter) into its place at the end of
+    // the word, then drop the earlier letters in one by one.
+    async showWord(earlier) {
+      const n = earlier.length + 1;
+      const group = new THREE.Group();
+      scene.add(group);
+      word = { group, slots: Array(n).fill(null), n, amp: 0, start: Infinity };
+
+      const sway0 = fx.sway;
+      const x1 = slotX(n - 1, n);
+      await tween(1100, (e) => {
+        fx.posX = x1 * e;
+        fx.tiltX = HOME_TILT[0] + (SLOT_TILT[0] - HOME_TILT[0]) * e;
+        fx.tiltY = HOME_TILT[1] + (SLOT_TILT[1] - HOME_TILT[1]) * e;
+        fx.sway = sway0 * (1 - e);
+      });
+      // Hand the main cube over to the word.
+      const main = new THREE.Group();
+      main.position.x = x1;
+      main.rotation.set(SLOT_TILT[0], SLOT_TILT[1], 0);
+      main.add(cube.group);
+      group.add(main);
+      word.slots[n - 1] = { g: main, y: 0, main: true };
+
+      const drops = earlier.map((c, i) => {
+        castShadows(c.group);
+        const g = new THREE.Group();
+        g.add(c.group);
+        g.position.set(slotX(i, n), 18, 0);
+        g.rotation.set(SLOT_TILT[0], SLOT_TILT[1], 0);
+        group.add(g);
+        const sl = { g, y: 18 };
+        word.slots[i] = sl;
+        return wait(i * 260).then(() => tween(950, (e) => { sl.y = 18 * (1 - e); }, easeOutBack));
+      });
+      await Promise.all(drops);
+      tween(800, (e) => { word.amp = e; });
+      word.start = clock.elapsedTime + 0.8;
+    },
+
+    // Fly the earlier letters away and slide the main cube back to the middle.
     async clearWord() {
       if (!word) return;
       const w = word;
-      await Promise.all(w.slots.map((sl, i) =>
-        wait(i * 70).then(() => tween(520, (e) => { sl.y = 18 * e; }, easeInCubic))));
+      const fly = Promise.all(w.slots.map((sl, i) => (sl.main ? null
+        : wait(i * 60).then(() => tween(520, (e) => { sl.y = 18 * e; }, easeInCubic)))));
+      const main = w.slots.find((sl) => sl.main);
+      holder.add(cube.group);
+      fx.posX = main.g.position.x;
+      fx.tiltX = SLOT_TILT[0];
+      fx.tiltY = main.g.rotation.y;
+      fx.sway = 0;
+      main.g.parent.remove(main.g);
+      w.slots[w.slots.indexOf(main)] = null;
+      const from = { x: fx.posX, ty: wrap(fx.tiltY) };
+      await Promise.all([
+        fly,
+        tween(1000, (e) => {
+          fx.posX = from.x * (1 - e);
+          fx.tiltX = SLOT_TILT[0] + (HOME_TILT[0] - SLOT_TILT[0]) * e;
+          fx.tiltY = from.ty + (HOME_TILT[1] - from.ty) * e;
+        }),
+      ]);
       scene.remove(w.group);
       word = null;
-      fx.mainY = 12;
-      fx.main = 1;
-      await tween(900, (e) => { fx.mainY = 12 * (1 - e); }, easeOutBack);
-      fx.mainY = 0;
     },
   };
 }
