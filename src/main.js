@@ -7,6 +7,7 @@ import {
 import { createStage } from './scene.js';
 import { buildTitle } from './title.js';
 import { createPhysics } from './physics3d.js';
+import { sfx, isMuted, setMuted } from './audio.js';
 
 const MAX_LEN = 12;
 const FACES = 'URFDLB';
@@ -19,14 +20,17 @@ const sleep = async (ms, alive = () => true) => {
   while (performance.now() < end && alive()) await new Promise((r) => setTimeout(r, 40));
 };
 
+RubiksCube.onTurn = (duration) => sfx.turn(duration);
 const cube = new RubiksCube();
 const stage = createStage($('cube'), cube, {
   onShatter: (pieces) => {
     physics.shatter(pieces);
+    sfx.explode();
     const cx = pieces.reduce((a, p) => a + p.x, 0) / pieces.length;
     const cy = pieces.reduce((a, p) => a + p.y, 0) / pieces.length;
     boom(cx, cy);
   },
+  sound: sfx,
 });
 
 // Things confetti can land on: the 3D cubes, the SPACE button while it's up,
@@ -45,13 +49,15 @@ function obstacles() {
   }
   return list;
 }
-const physics = createPhysics({ back: $('physics-back'), front: $('physics-front'), obstacles });
+const physics = createPhysics({ back: $('physics-back'), front: $('physics-front'), obstacles, sound: sfx });
 if (import.meta.env.DEV) window.__rubish = { physics }; // handy for poking at it in dev
 buildTitle($('title'), data, {
   onExplode: (x, y, size, rx, ry) => {
     physics.explode(x, y, size, rx, ry);
     boom(x, y);
+    sfx.explode();
   },
+  sound: sfx,
 });
 
 const input = $('char');
@@ -81,7 +87,7 @@ function swatchRow(el, onPick) {
     b.setAttribute('role', 'radio');
     b.setAttribute('aria-label', c);
     b.dataset.color = c;
-    b.onclick = () => onPick(c);
+    b.onclick = () => { sfx.blip(COLOR_ORDER.indexOf(c)); onPick(c); };
     el.appendChild(b);
   }
 }
@@ -217,6 +223,7 @@ function show(el, on) {
 }
 
 function shake() {
+  sfx.error();
   const row = $('form');
   row.classList.remove('shake');
   void row.offsetWidth;
@@ -225,7 +232,8 @@ function shake() {
 }
 
 // ---------- Starting a word ----------
-async function start() {
+// auto = true (Shift+Enter): play every letter of the word by itself.
+async function start(auto = false) {
   const text = input.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, MAX_LEN);
   if (!text) return shake();
   if (mode !== 'landing' && mode !== 'done') return;
@@ -235,7 +243,8 @@ async function start() {
   document.body.classList.add('focus');
   caption('');
   slideOut(entry);
-  word = { chars: [...text], idx: 0, color, bg: bgColor };
+  word = { chars: [...text], idx: 0, color, bg: bgColor, auto };
+  sfx.submit();
   shown = null;
 
   await loopPromise;
@@ -260,6 +269,7 @@ async function scrambleAndSolve(alive) {
     let f;
     do f = FACES[Math.floor(Math.random() * 6)]; while (f === last);
     last = f;
+    sfx.shake();
     await cube.turn(f + ['', "'", '2'][Math.floor(Math.random() * 3)], 80, linear);
   }
   const solved = await cube.solve(55, easeInOutCubic, alive);
@@ -271,7 +281,7 @@ async function beginLetter() {
   mode = 'intro';
   const ch = word.chars[word.idx];
   const hold = holdFor(data[ch], word.color, word.bg);
-  const myJob = { ch, hold, moves: hold.moves, step: 0 };
+  const myJob = { ch, hold, moves: hold.moves, step: 0, finish: !!word.auto };
   job = myJob;
   const alive = () => mode === 'intro' && job === myJob;
   nextBtn.disabled = true;
@@ -300,6 +310,7 @@ function press() {
 function next() {
   if (mode !== 'steps' || job.step + queued >= job.moves.length) return;
   press();
+  sfx.step();
   queued++;
   if (!running) runQueue();
 }
@@ -309,6 +320,7 @@ function finishLetter() {
   if (!job) return;
   if (mode === 'intro') { job.finish = true; return; } // do it as soon as it's ready
   if (mode !== 'steps') return;
+  if (!job.rush) sfx.whoosh();
   job.rush = true;
   queued = job.moves.length - job.step;
   if (!running) runQueue();
@@ -346,6 +358,7 @@ async function celebrate() {
   // The last letter saves its confetti for the start page with the word on it.
   const last = word.idx === word.chars.length - 1;
   if (!REDUCED && !last) physics.confetti(110);
+  if (!last) sfx.celebrate();
   await stage.celebrate();
   if (mode !== 'celebrate') return;
   word.idx++;
@@ -378,6 +391,7 @@ async function finale() {
   input.focus({ preventScroll: true });
   // The one big celebration, once the word is showing on the start page.
   if (!REDUCED) setTimeout(() => physics.confetti(170), 350);
+  sfx.fanfare();
 }
 
 // Esc during a word: back to the plain landing page.
@@ -401,6 +415,12 @@ function goHome() {
 input.addEventListener('input', () => {
   input.value = input.value.replace(/[^a-z0-9]/gi, '').slice(0, MAX_LEN).toUpperCase();
 });
+input.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.shiftKey) { // Shift+Enter: start and auto-play the whole word
+    e.preventDefault();
+    start(true);
+  }
+});
 $('form').addEventListener('submit', (e) => {
   e.preventDefault();
   start();
@@ -412,7 +432,11 @@ document.addEventListener('keydown', (e) => {
   if (mode === 'steps' || mode === 'intro' || mode === 'celebrate') {
     if (e.code === 'Space' || e.key === 'ArrowRight') { e.preventDefault(); next(); }
     else if (e.key === 'ArrowLeft') { e.preventDefault(); back(); }
-    else if (e.key === 'Enter') { e.preventDefault(); finishLetter(); }
+    else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (e.shiftKey && word) word.auto = true; // Shift+Enter: finish the rest of the word too
+      finishLetter();
+    }
     else if (e.key === 'Escape') goHome();
     return;
   }
@@ -423,5 +447,34 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
   }
 });
+
+// ---------- Sound on/off (button on the start pages, M key during a word) ----------
+const muteBtn = $('mute');
+function showMute() {
+  muteBtn.textContent = isMuted() ? 'SND OFF' : 'SND ON';
+  muteBtn.setAttribute('aria-pressed', String(isMuted()));
+}
+muteBtn.addEventListener('click', (e) => {
+  e.currentTarget.blur();
+  setMuted(!isMuted());
+  showMute();
+  sfx.blip(3);
+});
+document.addEventListener('keydown', (e) => {
+  // On the start pages typed letters go into the word box, so M only mutes mid-word.
+  const midWord = mode !== 'landing' && mode !== 'done';
+  if ((e.key === 'm' || e.key === 'M') && midWord && !e.metaKey && !e.ctrlKey) {
+    setMuted(!isMuted());
+    showMute();
+  }
+});
+showMute();
+
+// ---------- Never let a pinch or Ctrl+scroll zoom the page itself ----------
+window.addEventListener('wheel', (e) => { if (e.ctrlKey) e.preventDefault(); }, { passive: false });
+for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) {
+  document.addEventListener(ev, (e) => e.preventDefault(), { passive: false }); // Safari trackpad pinch
+}
+document.addEventListener('touchmove', (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
 
 restartLoop();

@@ -319,3 +319,22 @@ body.finale .stage { max-width: 1100px; }
 /* Confetti pieces can be grabbed and thrown */
 body.over-piece, body.over-piece * { cursor: grab !important; }
 body.grabbing, body.grabbing * { cursor: grabbing !important; user-select: none; }
+
+/* Sound toggle (start pages only; M key works during a word) */
+.mute {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  z-index: 60;
+  padding: 8px 10px;
+  font: 9px var(--font);
+  background: var(--paper);
+  color: var(--ink);
+  border: 3px solid var(--ink);
+  box-shadow: 4px 4px 0 var(--ink);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.4s ease;
+}
+.mute:active { transform: translate(4px, 4px); box-shadow: 0 0 0 var(--ink); }
+.mute[aria-pressed='true'] { background: #d9d9d9; color: #666; }
+body.focus .mute { opacity: 0; pointer-events: none; }
