@@ -1,6 +1,7 @@
-// Three.js stage: the main cube (draggable, with idle sway, shake and a soft
-// shadow on the wall behind it), the celebration spin, and the finale where
-// the main cube slides into place and the earlier letters drop in beside it.
+// Three.js stage: the main cube (idle sway, shake, a soft shadow on the wall
+// behind it), the celebration spin, and the finale where the main cube slides
+// into place and the earlier letters drop in beside it. Every cube can be
+// dragged around on its own.
 import * as THREE from 'three';
 import { easeInOutCubic, easeOutBack } from './cube3d.js';
 
@@ -27,6 +28,25 @@ export function tween(duration, fn, ease = easeInOutCubic) {
   });
 }
 
+// Per-cube drag rotation with inertia and a gentle return home.
+function makeDrag() {
+  return { x: 0, y: 0, vx: 0, vy: 0, release: 0, t: 0 };
+}
+function settleDrag(d, dt, now, active) {
+  if (active) return;
+  d.y += d.vy * dt;
+  d.x = clamp(d.x + d.vx * dt, -1.25, 1.25);
+  const damp = Math.exp(-dt * 3);
+  d.vx *= damp;
+  d.vy *= damp;
+  if (now - d.release > 1400 && Math.abs(d.vy) < 0.4) {
+    d.y = wrap(d.y);
+    const k = 1 - Math.exp(-dt * 2.4);
+    d.x -= d.x * k;
+    d.y -= d.y * k;
+  }
+}
+
 export function createStage(container, cube) {
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -43,7 +63,7 @@ export function createStage(container, cube) {
   key.position.set(-2.5, 4, 14);
   key.castShadow = true;
   key.shadow.mapSize.set(2048, 2048);
-  key.shadow.radius = 14;
+  key.shadow.radius = 9;
   key.shadow.blurSamples = 20;
   Object.assign(key.shadow.camera, { left: -50, right: 50, top: 32, bottom: -32, near: 0.5, far: 60 });
   scene.add(key, new THREE.AmbientLight(0xffffff, 1.45));
@@ -51,7 +71,7 @@ export function createStage(container, cube) {
   // Invisible wall behind the cube that only shows shadows.
   const wall = new THREE.Mesh(
     new THREE.PlaneGeometry(240, 240),
-    new THREE.ShadowMaterial({ color: 0x05394f, opacity: 0.32 }),
+    new THREE.ShadowMaterial({ color: 0x032a3b, opacity: 0.5 }),
   );
   wall.position.z = -3.8;
   wall.receiveShadow = true;
@@ -67,8 +87,10 @@ export function createStage(container, cube) {
     sway: 1, glow: 0, scale: 1, lift: 0, shake: 0, main: 1, mainY: 0, posX: 0,
     tiltX: HOME_TILT[0], tiltY: HOME_TILT[1],
   };
-  let word = null; // finale: { group, slots: [{ g, y }], n, amp, start }
+  let mainDrag = makeDrag();
+  let word = null; // finale: { group, slots: [{ g, y, drag, main? }], n, amp, start }
   let aspect = 1;
+  let camZ = 13.5;
 
   const targetZ = () => {
     let d = 13.5 / Math.min(1, aspect * 1.1);
@@ -78,7 +100,9 @@ export function createStage(container, cube) {
     }
     return d;
   };
-  let camZ = 13.5;
+
+  const clock = new THREE.Clock();
+  const render = () => renderer.render(scene, camera);
 
   const resize = () => {
     const w = container.clientWidth, h = container.clientHeight;
@@ -87,74 +111,89 @@ export function createStage(container, cube) {
     aspect = w / h;
     camera.aspect = aspect;
     camera.updateProjectionMatrix();
+    // Resizing clears the canvas after this frame was drawn; redraw right away
+    // so the cube never blinks out while the stage animates its size.
+    render();
   };
   new ResizeObserver(resize).observe(container);
   resize();
   camZ = targetZ();
 
-  // ---------- Drag to rotate, with inertia and a gentle return home ----------
-  const drag = { x: 0, y: 0, vx: 0, vy: 0, active: false, px: 0, py: 0, t: 0, release: 0 };
+  // ---------- Dragging: whichever cube is under the pointer ----------
+  const raycaster = new THREE.Raycaster();
+  const ndc = new THREE.Vector2();
+  let dragging = null; // the drag state being moved
+  let px = 0, py = 0;
+
+  function pickDrag(e) {
+    const rect = container.getBoundingClientRect();
+    ndc.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+    raycaster.setFromCamera(ndc, camera);
+    const targets = [holder, ...(word ? word.slots.filter(Boolean).map((s) => s.g) : [])];
+    const hit = raycaster.intersectObjects(targets, true)[0];
+    if (hit) {
+      for (let o = hit.object; o; o = o.parent) {
+        if (o === holder) return mainDrag;
+        const slot = word?.slots.find((s) => s && s.g === o);
+        if (slot) return slot.drag;
+      }
+    }
+    // Missed: on the plain stage, grabbing anywhere spins the main cube.
+    return word ? null : mainDrag;
+  }
+
   container.addEventListener('pointerdown', (e) => {
-    drag.active = true;
-    drag.px = e.clientX;
-    drag.py = e.clientY;
-    drag.t = performance.now();
-    drag.vx = drag.vy = 0;
+    dragging = pickDrag(e);
+    if (!dragging) return;
+    px = e.clientX;
+    py = e.clientY;
+    dragging.t = performance.now();
+    dragging.vx = dragging.vy = 0;
     container.setPointerCapture(e.pointerId);
     container.classList.add('dragging');
   });
   container.addEventListener('pointermove', (e) => {
-    if (!drag.active) return;
+    if (!dragging) return;
+    const d = dragging;
     const now = performance.now();
     const k = 0.009;
-    const dx = (e.clientX - drag.px) * k, dy = (e.clientY - drag.py) * k;
-    drag.px = e.clientX;
-    drag.py = e.clientY;
-    drag.y += dx;
-    drag.x = clamp(drag.x + dy, -1.25, 1.25);
-    const dts = Math.max(8, now - drag.t) / 1000;
-    drag.vy = dx / dts;
-    drag.vx = dy / dts;
-    drag.t = now;
+    const dx = (e.clientX - px) * k, dy = (e.clientY - py) * k;
+    px = e.clientX;
+    py = e.clientY;
+    d.y += dx;
+    d.x = clamp(d.x + dy, -1.25, 1.25);
+    const dts = Math.max(8, now - d.t) / 1000;
+    d.vy = dx / dts;
+    d.vx = dy / dts;
+    d.t = now;
   });
   const endDrag = () => {
-    if (!drag.active) return;
-    drag.active = false;
-    drag.release = performance.now();
+    if (!dragging) return;
+    dragging.release = performance.now();
+    if (dragging.release - dragging.t > 90) dragging.vx = dragging.vy = 0; // held still before letting go
+    dragging = null;
     container.classList.remove('dragging');
-    if (drag.release - drag.t > 90) drag.vx = drag.vy = 0; // held still before letting go
   };
   container.addEventListener('pointerup', endDrag);
   container.addEventListener('pointercancel', endDrag);
 
-  const clock = new THREE.Clock();
   renderer.setAnimationLoop(() => {
     const dt = Math.min(clock.getDelta(), 0.05);
     const t = clock.elapsedTime;
     const now = performance.now();
 
-    if (!drag.active) {
-      drag.y += drag.vy * dt;
-      drag.x = clamp(drag.x + drag.vx * dt, -1.25, 1.25);
-      const damp = Math.exp(-dt * 3);
-      drag.vx *= damp;
-      drag.vy *= damp;
-      if (now - drag.release > 1400 && Math.abs(drag.vy) < 0.4) {
-        drag.y = wrap(drag.y);
-        const k = 1 - Math.exp(-dt * 2.4);
-        drag.x -= drag.x * k;
-        drag.y -= drag.y * k;
-      }
-    }
+    settleDrag(mainDrag, dt, now, dragging === mainDrag);
+    if (word) for (const sl of word.slots) if (sl) settleDrag(sl.drag, dt, now, dragging === sl.drag);
 
     camZ += (targetZ() - camZ) * (1 - Math.exp(-dt * 3));
     camera.position.set(0, 0, camZ);
     camera.lookAt(0, 0, 0);
 
     const s = fx.shake;
+    const md = mainDrag;
     holder.rotation.set(
-      fx.tiltX + drag.x + Math.sin(t * 0.8) * 0.07 * fx.sway + s * Math.sin(t * 41) * 0.06,
-      fx.tiltY + drag.y + Math.sin(t * 0.55) * 0.22 * fx.sway + s * Math.sin(t * 33) * 0.07,
+      fx.tiltX + md.x + Math.sin(t * 0.8) * 0.07 * fx.sway + s * Math.sin(t * 41) * 0.06,
+      fx.tiltY + md.y + Math.sin(t * 0.55) * 0.22 * fx.sway + s * Math.sin(t * 33) * 0.07,
       s * (Math.sin(t * 47) * 0.08 + Math.sin(t * 29) * 0.05),
     );
     holder.position.set(
@@ -168,21 +207,22 @@ export function createStage(container, cube) {
     for (const m of Object.values(cube.materials)) m.emissiveIntensity = fx.glow;
 
     if (word) {
-      word.group.rotation.set(drag.x, drag.y, 0);
       word.slots.forEach((sl, i) => {
         if (!sl) return;
         sl.g.position.y = sl.y + Math.sin(t * 2 + i * 0.7) * 0.22 * word.amp;
         // A spin ripples across the word every few seconds.
         const local = t - word.start - i * 0.15;
         const l = local > 0 ? local % 4.5 : 99;
-        sl.g.rotation.y = SLOT_TILT[1] + (l < 1.2 ? easeInOutCubic(l / 1.2) * Math.PI * 2 : 0);
+        const spin = l < 1.2 ? easeInOutCubic(l / 1.2) * Math.PI * 2 : 0;
+        sl.g.rotation.set(SLOT_TILT[0] + sl.drag.x, SLOT_TILT[1] + sl.drag.y + spin, 0);
       });
     }
 
-    renderer.render(scene, camera);
+    render();
   });
 
   const slotX = (i, n) => (i - (n - 1) / 2) * SPACING;
+  const v = new THREE.Vector3();
 
   return {
     fx,
@@ -202,17 +242,23 @@ export function createStage(container, cube) {
       Object.assign(fx, { scale: 1, lift: 0, glow: 0 });
     },
 
-    // The main cube's circle on screen, for confetti to bounce off.
-    obstacle() {
-      if (!holder.visible || cube.group.parent !== holder) return null;
+    // On-screen boxes around every visible cube, for confetti to land on.
+    obstacles() {
       const rect = container.getBoundingClientRect();
-      const v = holder.getWorldPosition(new THREE.Vector3()).project(camera);
       const pxPerUnit = rect.height / 2 / (camZ * TAN15);
-      return {
-        x: rect.left + ((v.x + 1) / 2) * rect.width,
-        y: rect.top + ((1 - v.y) / 2) * rect.height,
-        r: 2.15 * fx.main * fx.scale * pxPerUnit,
+      const box = (obj, size) => {
+        obj.getWorldPosition(v).project(camera);
+        const half = size * pxPerUnit;
+        return {
+          x: rect.left + ((v.x + 1) / 2) * rect.width,
+          y: rect.top + ((1 - v.y) / 2) * rect.height,
+          hw: half * 0.95, hh: half,
+        };
       };
+      const out = [];
+      if (holder.visible && cube.group.parent === holder) out.push(box(holder, 2 * fx.main * fx.scale));
+      if (word) for (const sl of word.slots) if (sl) out.push(box(sl.g, 2));
+      return out;
     },
 
     hasWord: () => !!word,
@@ -233,13 +279,13 @@ export function createStage(container, cube) {
         fx.tiltY = HOME_TILT[1] + (SLOT_TILT[1] - HOME_TILT[1]) * e;
         fx.sway = sway0 * (1 - e);
       });
-      // Hand the main cube over to the word.
+      // Hand the main cube (and its drag state) over to the word.
       const main = new THREE.Group();
       main.position.x = x1;
-      main.rotation.set(SLOT_TILT[0], SLOT_TILT[1], 0);
       main.add(cube.group);
       group.add(main);
-      word.slots[n - 1] = { g: main, y: 0, main: true };
+      word.slots[n - 1] = { g: main, y: 0, drag: mainDrag, main: true };
+      mainDrag = makeDrag();
 
       const drops = earlier.map((c, i) => {
         castShadows(c.group);
@@ -248,7 +294,7 @@ export function createStage(container, cube) {
         g.position.set(slotX(i, n), 18, 0);
         g.rotation.set(SLOT_TILT[0], SLOT_TILT[1], 0);
         group.add(g);
-        const sl = { g, y: 18 };
+        const sl = { g, y: 18, drag: makeDrag() };
         word.slots[i] = sl;
         return wait(i * 260).then(() => tween(950, (e) => { sl.y = 18 * (1 - e); }, easeOutBack));
       });
@@ -261,22 +307,26 @@ export function createStage(container, cube) {
     async clearWord() {
       if (!word) return;
       const w = word;
-      const fly = Promise.all(w.slots.map((sl, i) => (sl.main ? null
+      const main = w.slots.find((sl) => sl && sl.main);
+      const fly = Promise.all(w.slots.map((sl, i) => (!sl || sl.main ? null
         : wait(i * 60).then(() => tween(520, (e) => { sl.y = 18 * e; }, easeInCubic)))));
-      const main = w.slots.find((sl) => sl.main);
+      // Take the main cube back, keeping exactly where it is right now.
       holder.add(cube.group);
+      mainDrag = main.drag;
       fx.posX = main.g.position.x;
-      fx.tiltX = SLOT_TILT[0];
-      fx.tiltY = main.g.rotation.y;
+      fx.mainY = main.g.position.y;
+      fx.tiltX = main.g.rotation.x - mainDrag.x;
+      fx.tiltY = main.g.rotation.y - mainDrag.y;
       fx.sway = 0;
       main.g.parent.remove(main.g);
       w.slots[w.slots.indexOf(main)] = null;
-      const from = { x: fx.posX, ty: wrap(fx.tiltY) };
+      const from = { x: fx.posX, y: fx.mainY, tx: fx.tiltX, ty: wrap(fx.tiltY) };
       await Promise.all([
         fly,
         tween(1000, (e) => {
           fx.posX = from.x * (1 - e);
-          fx.tiltX = SLOT_TILT[0] + (HOME_TILT[0] - SLOT_TILT[0]) * e;
+          fx.mainY = from.y * (1 - e);
+          fx.tiltX = from.tx + (HOME_TILT[0] - from.tx) * e;
           fx.tiltY = from.ty + (HOME_TILT[1] - from.ty) * e;
         }),
       ]);
