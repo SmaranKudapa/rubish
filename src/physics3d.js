@@ -278,6 +278,14 @@ export function createPhysics({ back, front, obstacles = () => [], sound = {}, o
         const ty = typeof h.y === 'function' ? h.y() : h.y;
         p.x = h.sx + (tx - h.sx) * e;
         p.y = h.sy + (ty - h.sy) * e - Math.sin(Math.PI * e) * h.lift;
+        // spiral: circle in toward the target, the circle shrinking to nothing.
+        if (h.spiral) {
+          const a = e * Math.PI * 2 * 2.5, rr = h.spiral * Math.sin(Math.PI * Math.min(1, e * 1.15)) * (1 - e * 0.5);
+          p.x += Math.cos(a) * rr;
+          p.y += Math.sin(a) * rr * 0.7;
+        }
+        // spin: tumble faster and faster on the way in.
+        if (h.spin) { const sp = h.spin * (0.15 + 0.85 * e * e); p.w.set(sp * 0.5, sp, sp * 0.25); }
         p.size = h.ss + (h.size - h.ss) * e;
         p.r = p.size * 0.5;
         if (k >= 1) {
@@ -286,6 +294,7 @@ export function createPhysics({ back, front, obstacles = () => [], sound = {}, o
           if (!h.at) {
             h.at = now;
             if (h.freeze) p.w.set(0, 0, 0); // stop spinning (e.g. stuck in the glass)
+            else if (h.spin) p.w.multiplyScalar(1.6); // whirl away into the new thing
             h.onArrive?.();
           }
           // With stay, it remains at full size until sent somewhere else.
@@ -439,7 +448,8 @@ export function createPhysics({ back, front, obstacles = () => [], sound = {}, o
     // size; it's drawn in front of the page and shrinks away after arriving.
     // stay: remain at the target (full size) instead of shrinking away; it can
     // be sent on again later. freeze: stop it spinning when it arrives.
-    sendTo(p, { x, y, size, delay = 0, dur = 800, lift = 140, fade = 700, stay = false, freeze = false, onArrive }) {
+    // spin (rad/s) / spiral (px): whirl in on a shrinking spiral, spinning up.
+    sendTo(p, { x, y, size, delay = 0, dur = 800, lift = 140, fade = 700, stay = false, freeze = false, spin = 0, spiral = 0, onArrive }) {
       if (p.z < 0) {
         p.z = -p.z;
         layers.front.scene.add(p.mesh);
@@ -447,7 +457,7 @@ export function createPhysics({ back, front, obstacles = () => [], sound = {}, o
       p.hitsCube = false;
       p.flying = false; // (re)start the flight from wherever it is now
       p.done = false;
-      p.home = { x, y, size, t0: performance.now() + delay, dur, lift, fade, stay, freeze, onArrive };
+      p.home = { x, y, size, t0: performance.now() + delay, dur, lift, fade, stay, freeze, spin, spiral, onArrive };
     },
 
     // Celebration: 1x1x1 cubes (a different color on every face) rain down from

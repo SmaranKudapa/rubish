@@ -145,11 +145,26 @@ export const sfx = {
     g.gain.linearRampToValueAtTime(0.1, t + sec - 0.15);
     g.gain.linearRampToValueAtTime(0.0001, t + sec);
     o.connect(f).connect(g).connect(master);
+    // The falling whistle over the last few seconds.
+    const wo = ctx.createOscillator();
+    wo.type = 'sine';
+    wo.frequency.setValueAtTime(2600, t + sec - 3);
+    wo.frequency.exponentialRampToValueAtTime(280, t + sec);
+    const wg = ctx.createGain();
+    wg.gain.setValueAtTime(0.0001, t);
+    wg.gain.setValueAtTime(0.0001, t + sec - 3);
+    wg.gain.exponentialRampToValueAtTime(0.08, t + sec - 0.4);
+    wg.gain.linearRampToValueAtTime(0.0001, t + sec);
+    wo.connect(wg).connect(master);
     o.start(t);
     lfo.start(t);
-    o.stop(t + sec + 0.05);
-    lfo.stop(t + sec + 0.05);
-    tone({ type: 'sine', freq: 2600, to: 280, dur: 3, vol: 0.08, delay: sec - 3, attack: 2.6 });
+    wo.start(t);
+    for (const n of [o, lfo, wo]) n.stop(t + sec + 0.05);
+    // Returns a function that cuts it off right now (the impact came early).
+    return () => {
+      const n = ctx.currentTime;
+      for (const gn of [g, wg]) { gn.gain.cancelScheduledValues(n); gn.gain.setTargetAtTime(0.0001, n, 0.03); }
+    };
   },
   // Something smacking into the screen glass.
   glass() {
