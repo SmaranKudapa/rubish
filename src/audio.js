@@ -186,6 +186,14 @@ export const sfx = {
     noise({ dur: 0.22, vol: 0.2, freq: 1600, to: 200, q: 0.7, type: 'lowpass' });
     tone({ type: 'square', freq: 90, to: 50, dur: 0.12, vol: 0.06 });
   },
+  // Something tearing right past the camera: a loud rushing whoosh that drops
+  // in pitch as it goes by (a cartoon doppler).
+  flyby() {
+    if (!throttle('flyby', 90)) return;
+    noise({ dur: 0.55, vol: 0.32, freq: 3200, to: 260, q: 1.1 });
+    noise({ dur: 0.4, vol: 0.18, freq: 900, to: 140, q: 0.8, type: 'lowpass', delay: 0.05 });
+    tone({ type: 'triangle', freq: 220, to: 70, dur: 0.4, vol: 0.12, delay: 0.08 });
+  },
   whoosh() { if (throttle('whoosh', 80)) noise({ dur: 0.35, vol: 0.09, freq: 300, to: 2600, q: 1.4 }); },
   thud() { tone({ type: 'triangle', freq: 160, to: 55, dur: 0.18, vol: 0.22 }); noise({ dur: 0.08, vol: 0.08, freq: 400, type: 'lowpass' }); },
   // Confetti hitting something: a tiny pitched tick, louder for harder hits.

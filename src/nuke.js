@@ -488,8 +488,8 @@ export async function runNuke({ stage, physics, title, uiEls, input, target, dat
 
   // Near misses: lots of other bits of debris come at the screen too, at all
   // sorts of speeds, ballooning as they close in. Most whoosh off past an edge;
-  // some fly straight at you, swell past the size of the screen and zoom past
-  // the camera. None of them hit the glass (only the one above does that).
+  // some fly right past the camera, close by the side of the screen (never
+  // over the middle). None of them hit the glass (only the one above does that).
   for (let i = 0; i < 24; i++) {
     setTimeout(() => {
       const p = physics.pickPiece();
@@ -500,10 +500,13 @@ export async function runNuke({ stage, physics, title, uiEls, input, target, dat
       const dur = flyby ? 700 + (1 - speed) * 900 : 900 + (1 - speed) * 3100;
       let tx, ty, size;
       if (flyby) {
-        // Straight at the camera, just off-center, growing huge as it passes.
-        tx = W * (0.5 + (Math.random() - 0.5) * 0.7);
-        ty = H * (0.45 + (Math.random() - 0.5) * 0.6);
-        size = Math.max(W, H) * (1.3 + Math.random() * 0.8);
+        // Past the camera by the left or right side: it ends centered just
+        // beyond that edge, so at its biggest only a strip of it covers the side.
+        const right = Math.random() < 0.5;
+        size = H * (0.7 + Math.random() * 0.35);
+        const out = size * (0.18 + Math.random() * 0.15); // how far past the edge its middle ends up
+        tx = right ? W + out : -out;
+        ty = H * (0.2 + Math.random() * 0.6);
       } else {
         // Off past an edge, mostly the top and sides (as if flying past your head).
         const a = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.5;
@@ -516,8 +519,10 @@ export async function runNuke({ stage, physics, title, uiEls, input, target, dat
         fade: flyby ? 40 : 200, // a fly-by is just gone, past the lens
         ease: (t) => t * t * (3 - 2 * t) * 0.35 + t * t * 0.65, // drifts, then rushes past
         sizeEase: flyby ? (t) => t ** 3 : (t) => t * t, // grows faster and faster as it gets close
-        onArrive: () => sound.whoosh?.(),
+        onArrive: () => { if (!flyby) sound.whoosh?.(); },
       });
+      // A fly-by gets a loud rushing whoosh as it tears past.
+      if (flyby) setTimeout(() => sound.flyby?.(), Math.max(0, dur - 260));
     }, 600 + Math.random() * 6400);
   }
 
