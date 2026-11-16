@@ -29,13 +29,19 @@ const stage = createStage($('cube'), cube, {
   },
 });
 
-// Things confetti can land on: the 3D cubes, plus the SPACE button while it's up.
+// Things confetti can land on: the 3D cubes, the SPACE button while it's up,
+// and the word box and > button while they're on screen.
+const rectPoly = (el) => {
+  const r = el.getBoundingClientRect();
+  return [[r.left, r.top], [r.right, r.top], [r.right, r.bottom], [r.left, r.bottom]];
+};
 function obstacles() {
   const list = stage.obstacles();
   const steps = $('steps');
-  if (!steps.hidden && steps.classList.contains('show')) {
-    const r = $('next').getBoundingClientRect();
-    list.push([[r.left, r.top], [r.right, r.top], [r.right, r.bottom], [r.left, r.bottom]]);
+  if (!steps.hidden && steps.classList.contains('show')) list.push(rectPoly($('next')));
+  const entry = $('entry');
+  if (!entry.hidden && !entry.classList.contains('out-left') && !entry.classList.contains('from-right')) {
+    list.push(rectPoly($('char')), rectPoly($('go')));
   }
   return list;
 }
