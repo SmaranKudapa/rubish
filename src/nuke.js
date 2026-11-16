@@ -1,20 +1,25 @@
 // The NUKE easter egg (type NUKE and submit; the word box locks).
 //
-//  0.0s  a little launcher rises out of the floor
-//  1.2s  a 3D missile launches from a 3D launcher and flies, at one steady
-//        speed, along an unpredictable rollercoaster path to the achievement
-//        button (22s), growing as it comes. The screen warms to red, the alarm
-//        wails and the page shakes harder as it gets close.
-// 22.0s  impact on the button: flash, full red world, every cube explodes, the
-//        UI falls apart and a slow, animated mushroom cloud rises behind it
-//        all. "NUKE" lifts out of the word box to the middle of the screen,
-//        gains a D, and the letters flip into cubes. Then "press any key".
+//  0.0s  a 3D launcher slides in from the left and eases to a stop; its hatch
+//        swings open
+//  2.2s  a 3D missile launches and flies, at one steady speed, along an
+//        unpredictable rollercoaster path to the achievement button, growing
+//        as it comes. The screen warms to red, the alarm wails and the page
+//        shakes harder as it gets close.
+// ~22s   the moment the nose touches the button: flash, full red world, every
+//        cube explodes, the UI falls apart and a slow, animated mushroom cloud
+//        rises behind it all. "NUKE" sits in the word box 2s more, then lifts
+//        out to the middle of the screen, gains a D (the debris stuck in the
+//        cracked glass spirals in and morphs into it), and the letters flip
+//        into cubes. Then "press any key".
 import * as THREE from 'three';
 import { PALETTE } from './cube3d.js';
 import { buildCube } from './title.js';
+import { ringsAround } from './arm.js';
 
 const TOTAL = 22000; // launch to impact (it takes its time)
-const LAUNCH = 1200; // the launcher's rise before the missile fires
+const LAUNCH = 2200; // the launcher slides in and opens before the missile fires
+const SLIDE = 1500; // ...of which the slide in takes this long
 const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 const easeOut = (t) => 1 - Math.pow(1 - t, 3);
 const clamp01 = (t) => Math.min(1, Math.max(0, t));
@@ -229,7 +234,7 @@ function noise(x, y) {
   const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
   return lerp(lerp(h2(xi, yi), h2(xi + 1, yi), u), lerp(h2(xi, yi + 1), h2(xi + 1, yi + 1), u), v);
 }
-const CLOUD_RAMP = [[0.82, [255, 246, 200]], [0.64, [255, 213, 0]], [0.46, [255, 88, 0]], [0.28, [196, 30, 58]], [0.14, [110, 22, 22]], [-1, [70, 52, 52]]];
+const CLOUD_RAMP = [[0.82, [255, 246, 200]], [0.64, [255, 213, 0]], [0.46, [255, 88, 0]], [0.28, [196, 30, 58]], [0.14, [110, 22, 22]], [-Infinity, [70, 52, 52]]];
 
 function cloudPainter(canvas) {
   const N = canvas.width;
@@ -303,7 +308,12 @@ export async function runNuke({ stage, physics, title, uiEls, input, target, dat
   const LSCALE = 30; // px per unit
   launcher.root.scale.setScalar(LSCALE);
   scene.add(launcher.root);
-  const launcherY = (rise) => -(floorTop - 0.45 * LSCALE) - (1 - rise) * 90;
+  const launcherY = -(floorTop - 0.45 * LSCALE);
+  const offLeft = -LSCALE * 3; // starts fully off the left edge
+  // Nose tip, in model units ahead of the missile's origin (as seen on screen,
+  // with the lean toward the viewer).
+  const TIP = (2.12 + 0.625) * Math.cos(0.45);
+  const hitBox = { l: 0, r: 0, t: 0, b: 0 };
 
   // The path is made at launch time, starting at the top of the launch tube.
   const tr = target.getBoundingClientRect();
@@ -311,8 +321,8 @@ export async function runNuke({ stage, physics, title, uiEls, input, target, dat
   let path = null;
 
   const panelish = [document.querySelector('.title'), document.querySelector('.panel')];
-  sound.siren?.(TOTAL / 1000);
-  let launched = false;
+  const stopSiren = sound.siren?.(TOTAL / 1000);
+  let launched = false, hit = false;
 
   // ---------- The flight ----------
   await new Promise((resolve) => {
@@ -321,15 +331,21 @@ export async function runNuke({ stage, physics, title, uiEls, input, target, dat
       const ms = now - t0;
       const t = ms / 1000;
 
-      // Launcher rises out of the floor; its hatch swings open.
-      const up = easeInOut(clamp01(ms / LAUNCH));
-      launcher.root.position.set(lx, launcherY(up), 0);
-      launcher.hatch.rotation.z = 1.9 * easeInOut(clamp01((ms - 500) / 700));
+      // Launcher slides in from the left, easing to a stop (with a little
+      // rock as it brakes); then its hatch swings open.
+      const sl = clamp01(ms / SLIDE);
+      launcher.root.position.set(lerp(offLeft, lx, easeOut(sl)), launcherY, 0);
+      const brake = ms < SLIDE ? -0.06 * Math.sin(Math.PI * sl) : 0.05 * Math.sin((ms - SLIDE) / 70) * Math.exp(-(ms - SLIDE) / 260);
+      launcher.root.rotation.z = brake;
+      launcher.hatch.rotation.z = 1.9 * easeInOut(clamp01((ms - SLIDE - 50) / 600));
 
       if (ms >= LAUNCH) {
         if (!launched) {
           launched = true;
+          launcher.root.rotation.z = 0;
           launcher.root.updateMatrixWorld(true);
+          const r0 = target.getBoundingClientRect();
+          Object.assign(hitBox, { l: r0.left - 3, r: r0.right + 3, t: r0.top - 3, b: r0.bottom + 3 });
           const mouth = launcher.mouth.getWorldPosition(new THREE.Vector3());
           path = constantSpeed(rollercoaster(W, H, [mouth.x, -mouth.y], [tx, ty]));
           missile.root.visible = true;
@@ -344,6 +360,10 @@ export async function runNuke({ stage, physics, title, uiEls, input, target, dat
         missile.root.rotation.z = Math.atan2(-p.dy, p.dx) - Math.PI / 2;
         missile.spin.rotation.y = t * 2.2;
         missile.flame.scale.set(1, 0.8 + Math.random() * 0.5, 1);
+        // Goes off the instant the nose touches the button.
+        const dl = Math.hypot(p.dx, p.dy) || 1;
+        const tipX = p.x + (p.dx / dl) * TIP * (px / LEN), tipY = p.y + (p.dy / dl) * TIP * (px / LEN);
+        if (f > 0.5 && tipX >= hitBox.l && tipX <= hitBox.r && tipY >= hitBox.t && tipY <= hitBox.b) hit = true;
       }
       renderer.render(scene, camera);
 
@@ -357,13 +377,14 @@ export async function runNuke({ stage, physics, title, uiEls, input, target, dat
       const j = Math.pow(k, 2.5) * 7;
       for (const n of panelish) if (n) n.style.transform = `translate(${(Math.random() - 0.5) * j}px, ${(Math.random() - 0.5) * j}px)`;
 
-      if (ms < TOTAL) requestAnimationFrame(frame);
+      if (ms < TOTAL && !hit) requestAnimationFrame(frame);
       else resolve();
     };
     requestAnimationFrame(frame);
   });
 
   // ---------- Impact on the button ----------
+  stopSiren?.();
   onImpact();
   sound.nukeBoom?.();
   renderer.dispose();
@@ -388,8 +409,6 @@ export async function runNuke({ stage, physics, title, uiEls, input, target, dat
   // The word lifts out of the box before the box falls away.
   const box = input.getBoundingClientRect();
   const boxFont = parseFloat(getComputedStyle(input).fontSize) || 18;
-  input.value = '';
-  input.placeholder = '';
 
   // Every cube blows up; debris rains down.
   stage.shatterAll();
@@ -411,7 +430,7 @@ export async function runNuke({ stage, physics, title, uiEls, input, target, dat
   // Bits of the UI shake loose and fall, at random.
   for (const n of panelish) if (n) { n.style.transform = ''; n.classList.add('quake'); }
   for (const node of uiEls) {
-    if (!node || !node.isConnected || node === target) continue;
+    if (!node || !node.isConnected || node === target || node === input) continue;
     node.style.setProperty('--delay', `${(Math.random() * 1.4).toFixed(2)}s`);
     node.style.setProperty('--dur', `${(1.3 + Math.random() * 0.9).toFixed(2)}s`);
     node.style.setProperty('--rot', `${Math.round((Math.random() - 0.5) * 220)}deg`);
@@ -435,7 +454,14 @@ export async function runNuke({ stage, physics, title, uiEls, input, target, dat
   };
   requestAnimationFrame(animateCloud);
 
-  // "NUKE" floats out of the word box to the middle of the screen as plain text.
+  // NUKE sits in the (still standing) word box a couple of seconds more...
+  await sleep(700);
+  for (const n of panelish) if (n) n.classList.remove('quake');
+  stage.fx.shake = 0.35;
+  await sleep(2000);
+
+  // ...then floats out of the box to the middle of the screen as plain text,
+  // and the empty box falls away.
   const looks = [['N', 'white', 'red'], ['U', 'white', 'orange'], ['K', 'white', 'yellow'], ['E', 'white', 'red'], ['D', 'white', 'orange']];
   const word = el('title intro nuke-word instant', layer);
   const cubes = looks.map((look, i) => buildCube(data, look, i).mini);
@@ -445,10 +471,13 @@ export async function runNuke({ stage, physics, title, uiEls, input, target, dat
   const centerY = H * 0.44;
   word.style.top = `${centerY}px`;
   word.style.transform = `translate(-50%, -50%) translate(${box.left + box.width / 2 - W / 2}px, ${box.top + box.height / 2 - centerY}px) scale(${s0})`;
-  requestAnimationFrame(() => word.classList.remove('instant')); // from here on, slow transitions
-  await sleep(700);
-  for (const n of panelish) if (n) n.classList.remove('quake');
-  stage.fx.shake = 0.35;
+  input.value = '';
+  input.placeholder = '';
+  for (const [k, v] of [['--delay', '0.3s'], ['--dur', '1.6s'], ['--rot', '-40deg'], ['--dx', '-60px']]) input.style.setProperty(k, v);
+  input.classList.add('fall');
+  await sleep(60);
+  word.classList.remove('instant'); // from here on, slow transitions
+  void word.offsetWidth;
   word.style.transition = 'transform 8.5s cubic-bezier(0.65, 0, 0.35, 1)';
   word.style.transform = 'translate(-50%, -50%) scale(1)';
   sound.whoosh?.();
@@ -464,16 +493,27 @@ export async function runNuke({ stage, physics, title, uiEls, input, target, dat
   d.classList.remove('squeezed');
   sound.whoosh?.();
   await sleep(2100);
-  // ...and the piece stuck in the glass pulls free, flies into the slot and
-  // turns into the D (or, with no stuck piece, the D just fades in).
-  const showD = () => { d.classList.add('letter-in'); sound.blip?.(5); };
+  // ...and the piece stuck in the glass wrenches free, spirals into the slot
+  // spinning faster and faster, and morphs into the D in a flash (or, with no
+  // stuck piece, the D just spins in by itself).
+  const dr = d.getBoundingClientRect();
+  const showD = () => {
+    d.classList.add('letter-in', 'd-morph');
+    d.addEventListener('animationend', () => d.classList.remove('d-morph'), { once: true });
+    ringsAround(dr, 3);
+    sound.pop?.();
+    sound.blip?.(5);
+  };
   if (stuck) {
-    const r = d.getBoundingClientRect();
+    stuck.w.set(0, 0, 9); // a wobble as it's pulled out of the glass
+    sound.glass?.();
+    await sleep(350);
     sound.whoosh?.();
     physics.sendTo(stuck, {
-      x: r.left + r.width / 2, y: r.top + r.height / 2, size: m * 0.9, dur: 1700, lift: 110, fade: 1100, onArrive: showD,
+      x: dr.left + dr.width / 2, y: dr.top + dr.height / 2, size: m * 0.75, dur: 1900, lift: 60,
+      fade: 450, spin: 26, spiral: Math.min(W, H) * 0.16, onArrive: showD,
     });
-    await sleep(1700);
+    await sleep(1900);
   } else {
     showD();
   }
