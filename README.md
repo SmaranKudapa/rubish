@@ -1,17 +1,17 @@
 # rubish
 
-Type a letter or digit (A–Z, 0–9) and get the exact moves that make a solved Rubik's cube show it on the front face.
+Type a word (letters A–Z, digits 0–9) and get the exact moves that make a solved Rubik's cube show each character on its front face, one letter at a time.
 
-**Live:** https://rubish-delta.vercel.app (link straight to a character with `#A`, `#7`, ...)
+**Live:** https://rubish-delta.vercel.app
 
 ## Using the moves
 
-Start with a **solved** cube, **white on top** and **green facing you**, and keep it in that orientation.
+Start each letter with a **solved** cube held the way the 3D cube is shown (it turns to that orientation before the first move; which colors face you and face up depends on the letter color), and keep it in that orientation.
 
 - `U D R L F B` turn the Up, Down, Right, Left, Front or Back face a quarter turn clockwise, as seen looking straight at that face.
 - `'` means counter-clockwise, `2` means a half turn.
 
-On the landing page a 3D cube reshuffles itself into a random letter every 3 seconds. Pick a character and a letter color, hit `>`, and the cube resets to solved and turns to the orientation you should hold yours in. Press <kbd>space</kbd> (or tap **next step**) for each move; <kbd>←</kbd> goes back. When the letter is done there's a celebration and a box for the next one.
+On the landing page a 3D cube reshuffles itself into a random letter every 3 seconds (drag it to look around; click a RUBISH title cube to blow it up). Type a word, pick a letter color and hit `>`: the cube scrambles while shaking, solves itself, and turns to the orientation you should hold yours in. Press <kbd>space</kbd> (or tap **next step**) for each move; <kbd>←</kbd> goes back, <kbd>Esc</kbd> starts over. Each finished letter gets a celebration and the next letter starts automatically; at the end every cube you made spells out the word.
 
 ## How it works
 
