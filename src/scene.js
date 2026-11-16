@@ -214,7 +214,7 @@ export function createStage(container, cube, { onShatter = () => {} } = {}) {
     if (!t) return;
     e.preventDefault(); // don't scroll or zoom the page
     // Zooming in (scroll up / pinch apart) spreads; the other way pulls back.
-    zoomSpread(t, -e.deltaY * (e.ctrlKey ? 0.028 : 0.0062));
+    zoomSpread(t, -e.deltaY * (e.ctrlKey ? 0.019 : 0.0042));
   }, { passive: false });
 
   // Two-finger pinch on touch screens.
@@ -236,13 +236,16 @@ export function createStage(container, cube, { onShatter = () => {} } = {}) {
     if (pinch && touches.size === 2) {
       const [[ax, ay], [bx, by]] = [...touches.values()];
       const d = Math.hypot(ax - bx, ay - by);
-      zoomSpread(pinch.t, (d - pinch.d) * 0.022); // fingers apart = zoom in = spread
+      zoomSpread(pinch.t, (d - pinch.d) * 0.015); // fingers apart = zoom in = spread
       pinch.d = d;
     }
   });
   const liftTouch = (e) => {
     touches.delete(e.pointerId);
-    if (touches.size < 2) pinch = null;
+    if (touches.size < 2 && pinch) {
+      pinch.t.cube.spreadT = 0; // fingers lifted: snap back right away
+      pinch = null;
+    }
   };
   container.addEventListener('pointerup', liftTouch);
   container.addEventListener('pointercancel', liftTouch);
@@ -359,8 +362,9 @@ export function createStage(container, cube, { onShatter = () => {} } = {}) {
     // more as a cube gets close to blowing apart.
     for (const tg of allTargets()) {
       const c = tg.cube;
-      if (!c.exploding && c.spread > 0 && now - (c.spreadT || 0) > 900) {
-        c.spread *= Math.exp(-dt * 2.5);
+      // Let go without blowing it up and it snaps straight back together.
+      if (!c.exploding && c.spread > 0 && now - (c.spreadT || 0) > 160) {
+        c.spread *= Math.exp(-dt * 14);
         if (c.spread < 0.002) c.spread = 0;
       }
       if (c.spread !== c.appliedSpread) {
