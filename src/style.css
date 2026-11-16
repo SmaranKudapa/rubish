@@ -596,10 +596,11 @@ body.no-cursor, body.no-cursor * { cursor: none !important; }
   font: 9px var(--font);
   color: var(--ink);
   text-transform: uppercase;
-  opacity: 0.7;
+  opacity: 1; /* fully solid when usable; only faded while it can't be used */
+  cursor: pointer;
   transition: opacity 0.2s ease, transform 0.2s ease;
 }
-.skip:hover { opacity: 1; transform: translateY(-1px); }
+.skip:hover { transform: translateY(-1px); }
 .skip kbd {
   font: 8px var(--font);
   padding: 4px 6px;
@@ -610,7 +611,7 @@ body.no-cursor, body.no-cursor * { cursor: none !important; }
 }
 /* "Enter to skip" and "Esc to leave", side by side */
 .hints { display: flex; justify-content: center; gap: 18px; flex-wrap: wrap; }
-.next:disabled + .hints #skip { opacity: 0.35; pointer-events: none; }
+.next:disabled + .hints #skip { opacity: 0.3; pointer-events: none; }
 
 /* ---------- NUKE ---------- */
 .nuke-layer { position: fixed; inset: 0; z-index: 120; pointer-events: none; overflow: hidden; }
