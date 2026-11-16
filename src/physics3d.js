@@ -285,12 +285,16 @@ export function createPhysics({ back, front, obstacles = () => [], sound = {}, o
           // over h.fade ms so the swap reads as a transformation.
           if (!h.at) {
             h.at = now;
+            if (h.freeze) p.w.set(0, 0, 0); // stop spinning (e.g. stuck in the glass)
             h.onArrive?.();
           }
-          const f = Math.min(1, (now - h.at) / h.fade);
-          p.size = h.size * (1 - easeInCubic(f));
-          p.r = p.size * 0.5;
-          if (f >= 1) p.done = true;
+          // With stay, it remains at full size until sent somewhere else.
+          if (!h.stay) {
+            const f = Math.min(1, (now - h.at) / h.fade);
+            p.size = h.size * (1 - easeInCubic(f));
+            p.r = p.size * 0.5;
+            if (f >= 1) p.done = true;
+          }
         }
       } else if (p.landed !== null && !p.held) {
         const k = (now - p.landed - p.delay) / p.dur;
@@ -433,13 +437,17 @@ export function createPhysics({ back, front, obstacles = () => [], sound = {}, o
 
     // Send a piece flying to a screen point after delay ms, ending at the given
     // size; it's drawn in front of the page and shrinks away after arriving.
-    sendTo(p, { x, y, size, delay = 0, dur = 800, lift = 140, fade = 700, onArrive }) {
+    // stay: remain at the target (full size) instead of shrinking away; it can
+    // be sent on again later. freeze: stop it spinning when it arrives.
+    sendTo(p, { x, y, size, delay = 0, dur = 800, lift = 140, fade = 700, stay = false, freeze = false, onArrive }) {
       if (p.z < 0) {
         p.z = -p.z;
         layers.front.scene.add(p.mesh);
       }
       p.hitsCube = false;
-      p.home = { x, y, size, t0: performance.now() + delay, dur, lift, fade, onArrive };
+      p.flying = false; // (re)start the flight from wherever it is now
+      p.done = false;
+      p.home = { x, y, size, t0: performance.now() + delay, dur, lift, fade, stay, freeze, onArrive };
     },
 
     // Celebration: 1x1x1 cubes (a different color on every face) rain down from
