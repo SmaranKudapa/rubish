@@ -160,7 +160,16 @@ function swatchRow(el, notes, onPick) {
     b.setAttribute('role', 'radio');
     b.setAttribute('aria-label', c);
     b.dataset.color = c;
-    b.onclick = () => { playNote(notes[COLOR_ORDER.indexOf(c)]); onPick(c); };
+    // React on press, not on click: the square jumps down when pressed, so a
+    // press near its edge could end with the pointer off it, and then the
+    // browser never sends a click (no note, no color). Keyboard presses
+    // (Enter / Space) still come through as clicks with no pointer behind them.
+    const press = () => { playNote(notes[COLOR_ORDER.indexOf(c)]); onPick(c); };
+    b.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      press();
+    });
+    b.addEventListener('click', (e) => { if (e.detail === 0) press(); });
     el.appendChild(b);
   }
 }
