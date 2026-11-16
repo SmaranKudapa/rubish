@@ -422,6 +422,7 @@ async function beginLetter() {
   const alive = () => mode === 'intro' && job === myJob;
   nextBtn.disabled = true;
   show(steps, true);
+  showHint($('leave')); // Esc works again
   flash(ch);
 
   if (!(await scrambleAndSolve(alive))) return;
@@ -431,6 +432,49 @@ async function beginLetter() {
   mode = 'steps';
   nextBtn.disabled = false;
   if (myJob.finish) finishLetter();
+  else showHint($('skip')); // Enter works again
+}
+
+// ---------- Enter / Esc hints ----------
+// Pressing Enter or Esc (or clicking its hint): the key chip breaks out of the
+// hint and gets tossed into the cube, and the rest of the hint fades away. It
+// stays gone until that key can be used again.
+function tossKey(btn) {
+  if (btn.classList.contains('tossed') || btn.closest('[hidden]')) return;
+  const src = btn.querySelector('kbd') || btn.querySelector('span') || btn;
+  const r = src.getBoundingClientRect();
+  btn.classList.remove('hint-in');
+  btn.classList.add('tossed');
+  if (REDUCED || !r.width) return;
+  const chip = document.createElement('div');
+  chip.className = 'kbd-toss';
+  chip.textContent = src.textContent;
+  Object.assign(chip.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+  document.body.appendChild(chip);
+  const c = $('cube').getBoundingClientRect();
+  const x0 = r.left + r.width / 2, y0 = r.top + r.height / 2;
+  const x1 = c.left + c.width / 2, y1 = c.top + c.height / 2;
+  const lift = 110 + Math.abs(y0 - y1) * 0.35; // how high it arcs above the straight line
+  const spin = (Math.random() < 0.5 ? -1 : 1) * (420 + Math.random() * 300);
+  sfx.whoosh();
+  tween(700, (_, t) => {
+    const x = x0 + (x1 - x0) * t;
+    const y = y0 + (y1 - y0) * t * t - Math.sin(Math.PI * t) * lift; // up, then down into the cube
+    const s = (1 + 0.5 * Math.sin(Math.PI * t)) * (1 - 0.85 * t ** 3); // swells mid-air, shrinks into it
+    chip.style.transform = `translate(${x - x0}px, ${y - y0}px) rotate(${spin * t}deg) scale(${s})`;
+  }, linear).then(() => {
+    chip.remove();
+    stage.pop();
+    sfx.thud();
+  });
+}
+// The key can be used again: its hint pops back in.
+function showHint(btn) {
+  if (!btn.classList.contains('tossed')) return;
+  btn.classList.remove('tossed');
+  btn.classList.remove('hint-in');
+  void btn.offsetWidth;
+  btn.classList.add('hint-in');
 }
 
 // ---------- Step player ----------
@@ -455,9 +499,10 @@ function next() {
 // Enter (not shown anywhere in the UI): play every remaining move quickly.
 function finishLetter() {
   if (!job) return;
-  if (mode === 'intro') { job.finish = true; return; } // do it as soon as it's ready
+  if (mode === 'intro') { job.finish = true; tossKey($('skip')); return; } // do it as soon as it's ready
   if (mode !== 'steps') return;
   if (!job.rush) sfx.whoosh();
+  tossKey($('skip'));
   job.rush = true;
   queued = job.moves.length - job.step;
   if (!running) runQueue();
@@ -554,6 +599,7 @@ async function startSolve() {
   sfx.submit();
   nextBtn.disabled = true;
   show(steps, true);
+  showHint($('leave')); // Esc works again
   await Promise.all(s.cubes.map((c) => c.queue)); // let any turn in flight finish
   if (solving !== s) return;
   // The cubes to solve, left to right (skipping solved or blown-up ones).
@@ -589,6 +635,7 @@ async function solveNext() {
   mode = 'steps';
   nextBtn.disabled = false;
   if (myJob.finish) finishLetter();
+  else showHint($('skip')); // Enter works again
 }
 
 // One cube solved: a little pop, then on to the next.
@@ -633,6 +680,7 @@ async function solvedAll() {
 // Esc during a word: back to the plain landing page.
 function goHome() {
   if (mode === 'landing' || mode === 'done' || mode === 'finale') return;
+  tossKey($('leave'));
   mode = 'landing';
   queued = 0;
   job = null;

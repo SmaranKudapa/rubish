@@ -612,6 +612,27 @@ body.no-cursor, body.no-cursor * { cursor: none !important; }
 /* "Enter to skip" and "Esc to leave", side by side */
 .hints { display: flex; justify-content: center; gap: 18px; flex-wrap: wrap; }
 .next:disabled + .hints #skip { opacity: 0.3; pointer-events: none; }
+/* Used: the key chip has been tossed into the cube; the rest fades until usable */
+.skip.tossed { opacity: 0 !important; pointer-events: none; transition: opacity 0.25s ease; }
+.skip.tossed kbd { visibility: hidden; }
+.skip.hint-in { animation: hint-in 0.45s var(--spring); }
+@keyframes hint-in { from { opacity: 0; transform: scale(0.4); } }
+/* The flying key chip */
+.kbd-toss {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font: 8px var(--font);
+  text-transform: uppercase;
+  background: var(--paper);
+  color: var(--ink);
+  border: 2px solid var(--ink);
+  box-shadow: 0 2px 0 var(--ink);
+  pointer-events: none;
+  will-change: transform;
+}
 
 /* ---------- NUKE ---------- */
 .nuke-layer { position: fixed; inset: 0; z-index: 120; pointer-events: none; overflow: hidden; }
