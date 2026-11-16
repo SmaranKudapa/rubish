@@ -315,3 +315,7 @@ body.finale .stage { max-width: 1100px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
+
+/* Confetti pieces can be grabbed and thrown */
+body.over-piece, body.over-piece * { cursor: grab !important; }
+body.grabbing, body.grabbing * { cursor: grabbing !important; user-select: none; }

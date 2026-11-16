@@ -10,7 +10,7 @@ import { PALETTE, COLOR_ORDER } from './cube3d.js';
 
 const GRAVITY = 2300; // px/s^2
 const RESTITUTION = 0.32; // piece vs piece
-const FLOOR_BOUNCE = 0.72; // the floor is springy: pieces keep bouncing
+const FLOOR_BOUNCE = 0.84; // the floor is springy: pieces keep bouncing
 const SUBSTEPS = 4;
 const CELL = 40;
 const DEPTH_TOUCH = 0.28; // pieces closer than this in depth can collide
@@ -89,26 +89,28 @@ export function createPhysics({ back, front, obstacles = () => [] }) {
     if (p.landed === null) p.landed = now;
   }
 
-  function add({ x, y, vx, vy, size, faces, z = rand(-1, 1), w, quat, delay = 2000, dur = 900 }) {
+  function add({ x, y, vx, vy, size, faces, z = rand(-1, 1), w, quat, delay = 2000, dur = 900, hitsCube }) {
     const mesh = new THREE.Mesh(box, faces.map((f) => mats[f]));
     if (quat) mesh.quaternion.copy(quat);
     else mesh.quaternion.setFromEuler(new THREE.Euler(rand(0, 6.3), rand(0, 6.3), rand(0, 6.3)));
     // About half the pieces near the cube's depth bounce off it.
-    const hitsCube = Math.abs(z) < 0.5 && Math.random() < 0.85;
+    if (hitsCube === undefined) hitsCube = Math.abs(z) < 0.5 && Math.random() < 0.85;
     if (hitsCube) z = Math.abs(z);
     (z < 0 ? layers.back : layers.front).scene.add(mesh);
     const s = size * depthScale(z);
-    parts.push({
-      mesh, x, y, vx, vy, z, hitsCube,
+    const piece = {
+      mesh, x, y, vx, vy, z, hitsCube, faces, held: false,
       size: s, size0: s, r: s * 0.5, m: s * s,
       w: w || new THREE.Vector3(rand(-14, 14), rand(-14, 14), rand(-14, 14)),
       landed: null, delay: delay + rand(0, 700), dur, born: performance.now(),
-    });
+    };
+    parts.push(piece);
     if (!running) {
       running = true;
       last = performance.now();
       requestAnimationFrame(frame);
     }
+    return piece;
   }
 
   // Circle vs. a cube's on-screen outline (convex polygon, screen coords).
@@ -177,13 +179,14 @@ export function createPhysics({ back, front, obstacles = () => [] }) {
 
   function step(dt, now, obs) {
     for (const p of parts) {
+      if (p.held) continue; // follows the pointer instead
       p.vy += GRAVITY * dt;
       p.x += p.vx * dt;
       p.y += p.vy * dt;
       const floor = floorOf(p);
       if (p.y + p.r >= floor) {
         p.y = floor - p.r;
-        p.vy = p.vy > 70 ? -p.vy * FLOOR_BOUNCE : Math.min(p.vy, 0);
+        p.vy = p.vy > 55 ? -p.vy * FLOOR_BOUNCE : Math.min(p.vy, 0);
         p.vx *= 0.985;
         // Roll along the floor; damp the other spins.
         p.w.z = -p.vx / Math.max(p.r, 1);
@@ -220,7 +223,8 @@ export function createPhysics({ back, front, obstacles = () => [] }) {
           const d2 = dx * dx + dy * dy;
           if (d2 >= R * R || d2 === 0) continue;
           const d = Math.sqrt(d2), nx = dx / d, ny = dy / d;
-          const ia = 1 / a.m, ib = 1 / b.m;
+          const ia = a.held ? 0 : 1 / a.m, ib = b.held ? 0 : 1 / b.m;
+          if (!ia && !ib) continue;
           const s = (R - d) / (ia + ib);
           a.x -= nx * s * ia; a.y -= ny * s * ia;
           b.x += nx * s * ib; b.y += ny * s * ib;
@@ -236,8 +240,8 @@ export function createPhysics({ back, front, obstacles = () => [] }) {
             a.vx -= jt * tx * ia; a.vy -= jt * ty * ia;
             b.vx += jt * tx * ib; b.vy += jt * ty * ib;
           }
-          if (a.landed !== null) land(b, now);
-          if (b.landed !== null) land(a, now);
+          if (a.landed !== null && !b.held) land(b, now);
+          if (b.landed !== null && !a.held) land(a, now);
         }
       }
     }
@@ -251,7 +255,7 @@ export function createPhysics({ back, front, obstacles = () => [] }) {
     for (let i = 0; i < SUBSTEPS; i++) step(dt / SUBSTEPS, now, obs);
 
     for (const p of parts) {
-      if (p.landed !== null) {
+      if (p.landed !== null && !p.held) {
         const k = (now - p.landed - p.delay) / p.dur;
         if (k > 0) {
           p.size = p.size0 * (1 - easeInCubic(Math.min(1, k)));
@@ -268,7 +272,7 @@ export function createPhysics({ back, front, obstacles = () => [] }) {
       p.mesh.scale.setScalar(Math.max(p.size, 0.001));
     }
     parts = parts.filter((p) => {
-      const keep = p.size > 0.4 && now - p.born < 16000;
+      const keep = p.held || (p.size > 0.4 && now - p.born < 16000);
       if (!keep) p.mesh.parent.remove(p.mesh);
       return keep;
     });
@@ -278,7 +282,103 @@ export function createPhysics({ back, front, obstacles = () => [] }) {
     else running = false;
   }
 
+  // ---------- Grab, drag and throw pieces; a quick click duplicates one ----------
+  // The canvases ignore the pointer, so we listen on the window (capture phase)
+  // and claim the event only when it lands on a piece.
+  const PICK_PAD = 6;
+  let held = null;
+  let swallowClick = 0;
+
+  function pieceAt(x, y) {
+    let best = null;
+    for (const p of parts) {
+      if (p.size < 4) continue;
+      if (Math.hypot(p.x - x, p.y - y) <= p.r + PICK_PAD && (!best || p.z > best.z)) best = p;
+    }
+    return best;
+  }
+
+  const throwVel = () => [rand(-750, 750), rand(-1400, -650)];
+  const spinFor = (vx) => new THREE.Vector3(rand(-12, 12), rand(-12, 12), -vx / 40 + rand(-6, 6));
+
+  window.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const p = pieceAt(e.clientX, e.clientY);
+    if (!p) return;
+    e.preventDefault();
+    e.stopPropagation(); // don't let the cube or UI underneath react
+    const now = performance.now();
+    held = { p, id: e.pointerId, sx: e.clientX, sy: e.clientY, st: now, lx: e.clientX, ly: e.clientY, lt: now, vx: 0, vy: 0, moved: false };
+    // Held pieces never shrink away: restore full size and reset the timer.
+    p.held = true;
+    p.landed = null;
+    p.size = p.size0;
+    p.r = p.size * 0.5;
+    p.vx = p.vy = 0;
+    document.body.classList.add('grabbing');
+  }, { capture: true });
+
+  window.addEventListener('pointermove', (e) => {
+    if (held && e.pointerId === held.id) {
+      const now = performance.now();
+      const dt = Math.max(8, now - held.lt) / 1000;
+      // Smoothed pointer velocity, used for the throw.
+      held.vx = held.vx * 0.5 + ((e.clientX - held.lx) / dt) * 0.5;
+      held.vy = held.vy * 0.5 + ((e.clientY - held.ly) / dt) * 0.5;
+      held.lx = e.clientX;
+      held.ly = e.clientY;
+      held.lt = now;
+      held.p.x = e.clientX;
+      held.p.y = e.clientY;
+      if (Math.hypot(e.clientX - held.sx, e.clientY - held.sy) > 6) held.moved = true;
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    if (e.pointerType === 'mouse') document.body.classList.toggle('over-piece', !!pieceAt(e.clientX, e.clientY));
+  }, { capture: true });
+
+  const release = (e) => {
+    if (!held || e.pointerId !== held.id) return;
+    const { p } = held;
+    p.held = false;
+    p.born = performance.now();
+    if (!held.moved && performance.now() - held.st < 300) {
+      // Click: duplicate it and toss both.
+      const twin = add({
+        x: p.x, y: p.y, vx: 0, vy: 0, size: p.size0 / depthScale(p.z), faces: p.faces,
+        z: p.z, quat: p.mesh.quaternion, hitsCube: p.hitsCube, delay: p.delay, dur: p.dur,
+      });
+      for (const q of [p, twin]) {
+        [q.vx, q.vy] = throwVel();
+        q.w = spinFor(q.vx);
+      }
+    } else {
+      // Drag: throw it with the pointer's speed (or just drop it if it wasn't moving).
+      const fresh = performance.now() - held.lt < 80;
+      p.vx = fresh ? clamp(held.vx, -3000, 3000) : 0;
+      p.vy = fresh ? clamp(held.vy, -3000, 3000) : 0;
+      p.w = spinFor(p.vx);
+    }
+    held = null;
+    swallowClick = performance.now();
+    document.body.classList.remove('grabbing');
+    e.stopPropagation();
+  };
+  window.addEventListener('pointerup', release, { capture: true });
+  window.addEventListener('pointercancel', release, { capture: true });
+  // The click that follows a grab shouldn't press whatever is underneath.
+  window.addEventListener('click', (e) => {
+    if (performance.now() - swallowClick < 250) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }, { capture: true });
+
   return {
+    // For debugging/testing: where the pieces are right now.
+    pieces: () => parts.map((p) => ({ x: p.x, y: p.y, r: p.r, held: p.held, size: p.size })),
+
     // Celebration: 1x1x1 cubes (a different color on every face) rain down from
     // above the top of the page in random directions and speeds, spread over
     // about a second so it falls like a shower. Some land on the cubes.
