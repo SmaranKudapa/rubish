@@ -42,12 +42,13 @@ const parity = (p) => {
   return s % 2;
 };
 
-function faceColors(glyph) {
+// `other` is the second color's face: 'U' (adjacent to the front) or 'B' (opposite).
+function faceColors(glyph, other = OTHER) {
   const cells = glyph.join('').split('');
   // The center sticker can't move, so it decides which color is the letter.
   const centerOn = cells[4] === '#';
-  const on = centerOn ? CENTER : OTHER;
-  const off = centerOn ? OTHER : CENTER;
+  const on = centerOn ? CENTER : other;
+  const off = centerOn ? other : CENTER;
   return { colors: cells.map((c) => (c === '#' ? on : off)), on, off };
 }
 
@@ -94,9 +95,7 @@ const frontFace = (s) => s.slice(18, 27);
 console.log('Initialising solver...');
 Cube.initSolver();
 
-const out = {};
-for (const [ch, glyph] of Object.entries(glyphs)) {
-  const { colors, on, off } = faceColors(glyph);
+function shortest(ch, colors) {
   const want = colors.join('');
   let best = null;
   for (let t = 0; t < TRIES; t++) {
@@ -110,13 +109,23 @@ for (const [ch, glyph] of Object.entries(glyphs)) {
     if (!best || moves.length < best.length) best = moves;
   }
   if (!best) throw new Error(`No solution for ${ch}`);
-  // Verify, and record the full cube state after every move.
   const cube = new Cube();
-  const states = [cube.asString()];
-  for (const m of best) { cube.move(m); states.push(cube.asString()); }
-  if (frontFace(states[states.length - 1]) !== want) throw new Error(`Verification failed for ${ch}`);
-  out[ch] = { glyph, letterColor: on, backgroundColor: off, moves: best, states };
-  console.log(`${ch}: ${best.length} moves  ${best.join(' ')}`);
+  for (const m of best) cube.move(m);
+  if (frontFace(cube.asString()) !== want) throw new Error(`Verification failed for ${ch}`);
+  return best;
+}
+
+// Two variants per character: background on an adjacent face (U) for letter and
+// background colors that touch on a real cube, and on the opposite face (B) for
+// opposite pairs like white/yellow.
+const out = {};
+for (const [ch, glyph] of Object.entries(glyphs)) {
+  const adj = faceColors(glyph, 'U');
+  const opp = faceColors(glyph, 'B');
+  const moves = shortest(ch, adj.colors);
+  const oppMoves = shortest(ch, opp.colors);
+  out[ch] = { glyph, letterColor: adj.on, backgroundColor: adj.off, moves, opposite: { moves: oppMoves } };
+  console.log(`${ch}: ${moves.length} / ${oppMoves.length} moves`);
 }
 
 fs.writeFileSync(path.join(__dirname, '..', 'src', 'solutions.json'), JSON.stringify(out));
