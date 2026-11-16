@@ -1,13 +1,14 @@
 // "RUBISH" spelled out with little CSS 3D cubes, each showing its letter.
 import { PALETTE } from './cube3d.js';
 
+// Every letter is white; only the background changes.
 const LOOK = [
   ['R', 'white', 'red'],
   ['U', 'white', 'orange'],
-  ['B', 'blue', 'yellow'],
+  ['B', 'white', 'yellow'],
   ['I', 'white', 'green'],
-  ['S', 'yellow', 'blue'],
-  ['H', 'red', 'white'],
+  ['S', 'white', 'blue'],
+  ['H', 'white', 'red'],
 ];
 
 function face(cls, colors) {
@@ -40,8 +41,3 @@ export function buildTitle(el, data) {
   });
 }
 
-export function cheer(el) {
-  el.classList.remove('cheer');
-  void el.offsetWidth;
-  el.classList.add('cheer');
-}
