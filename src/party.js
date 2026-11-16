@@ -2,9 +2,10 @@
 // every cube on screen grows lit retro candles, and pixel balloons float up
 // from the bottom of the screen to the top.
 //  - Candles are blocky voxels with black edges and a stepped, flickering
-//    voxel flame. They stay put until their cube explodes; then they fly off
-//    as debris with everything else. The candles on the big cubes also go
-//    when a new word is started.
+//    voxel flame. They stay put until their cube explodes; then each one is
+//    flung off whole, tumbling like a ragdoll, and only breaks into pieces
+//    when it hits the floor. The candles on the big cubes also go when a new
+//    word is started.
 //  - Candles on the big cubes live in the stage's own 3D scene (they tilt with
 //    the cube and cast shadows); the ones on the RUBISH title cubes are drawn
 //    on a 3D overlay that follows each title cube.
@@ -132,11 +133,13 @@ function releaseBalloons(W) {
 }
 
 // ---------- The party ----------
-export function createParty({ stage, physics }) {
+export function createParty({ stage, physics, sound = {} }) {
   const onStage = []; // { cube, holder, candles: [{ c, at }], leaving: null | ms }
   const onTitle = []; // { mini, c, at }
+  const flying = []; // candles thrown off an exploding cube (on the overlay)
   let overlay = null;
   let running = false;
+  let lastFrame = 0;
   const t0 = performance.now();
 
   function ensureOverlay() {
@@ -170,17 +173,36 @@ export function createParty({ stage, physics }) {
     overlay = null;
   }
 
-  // A candle flying off as debris: a couple of blocks of its color and a
-  // flame block, tumbling away from (cx, cy) like the rest of the pieces.
+  // Breaking apart on impact: a couple of blocks of the candle's color and a
+  // flame block, scattering along the floor like the rest of the debris.
   const pieces = [];
   const quat = () => new THREE.Quaternion().setFromEuler(new THREE.Euler(rand(0, 3), rand(0, 3), rand(0, 3)));
-  function debris(base, top, size, color, cx, cy) {
+  function breakApart(base, top, size, color, hitX) {
     for (const [k, c] of [[0.25, color], [0.7, color], [1.05, 'yellow']]) {
       const x = base[0] + (top[0] - base[0]) * k, y = base[1] + (top[1] - base[1]) * k;
-      pieces.push({ x, y, dx: x - cx + rand(-10, 10), dy: y - cy - 30, size: size * (c === 'yellow' ? 0.8 : 1), quat: quat(), faces: Array(6).fill(c) });
+      const side = x - hitX || rand(-1, 1);
+      pieces.push({ x, y, dx: side, dy: -Math.abs(side) * 0.4, size: size * (c === 'yellow' ? 0.8 : 1), quat: quat(), faces: Array(6).fill(c) });
     }
   }
   const flush = () => { if (pieces.length) physics.shatter(pieces.splice(0)); };
+
+  // Fling a whole candle (already on the overlay, scaled to its on-screen
+  // size) off from base->top, away from the explosion at (cx, cy).
+  function fling(c, base, top, cx, cy, tilt = 0) {
+    const dx = top[0] - base[0], dy = top[1] - base[1];
+    const len = Math.hypot(dx, dy) || 1;
+    const mid = [(base[0] + top[0]) / 2, (base[1] + top[1]) / 2];
+    let ox = mid[0] - cx, oy = mid[1] - cy;
+    const ol = Math.hypot(ox, oy) || 1;
+    ox /= ol; oy /= ol;
+    const power = rand(350, 650);
+    flying.push({
+      c, len, tilt, x: mid[0], y: mid[1],
+      vx: ox * power + rand(-120, 120), vy: oy * power - rand(450, 750),
+      a: Math.atan2(dx, -dy), w: rand(5, 11) * (Math.random() < 0.5 ? -1 : 1),
+      yaw: 0, wy: rand(-6, 6), born: performance.now(),
+    });
+  }
 
   const frame = (now) => {
     const ms = now - t0, t = ms / 1000;
@@ -196,8 +218,17 @@ export function createParty({ stage, physics }) {
           const b = c.root.getWorldPosition(new THREE.Vector3());
           const top = c.root.localToWorld(new THREE.Vector3(0, 1, 0));
           const sb = stage.toScreen(b), st = stage.toScreen(top);
-          const size = Math.max(5, Math.hypot(st[0] - sb[0], st[1] - sb[1]) * 0.3);
-          debris(sb, st, size, c.color, center[0], center[1]);
+          // The same candle, redrawn on the overlay at its on-screen size.
+          const side = stage.toScreen(b.clone().add(new THREE.Vector3(1, 0, 0)));
+          const k = Math.hypot(side[0] - sb[0], side[1] - sb[1]); // px per cube unit here
+          const nc = buildCandle(c.color);
+          nc.root.scale.set(1.1 * k, 1.3 * k, 1.1 * k);
+          nc.root.rotation.order = 'ZYX';
+          nc.set(1, t);
+          ensureOverlay().scene.add(nc.root);
+          const dx = st[0] - sb[0], dy = st[1] - sb[1];
+          const dl = Math.hypot(dx, dy) || 1;
+          fling(nc, sb, [sb[0] + (dx / dl) * 1.3 * k, sb[1] + (dy / dl) * 1.3 * k], center[0], center[1]);
         }
         cube.group.remove(s.holder);
         onStage.splice(i, 1);
@@ -215,9 +246,10 @@ export function createParty({ stage, physics }) {
       const r = s.mini.getBoundingClientRect();
       const base = [r.left + r.width * 0.5, r.top + r.height * 0.14];
       if (s.mini.classList.contains('gone') || !s.mini.isConnected) {
-        const h = r.width * 0.55;
-        debris(base, [base[0], base[1] - h], Math.max(5, r.width * 0.14), s.c.color, r.left + r.width / 2, r.top + r.height / 2);
-        overlay?.scene.remove(s.c.root);
+        const h = s.c.root.scale.y; // its on-screen length
+        s.c.root.rotation.order = 'ZYX';
+        if (h > 1) fling(s.c, base, [base[0], base[1] - h], base[0] + rand(-8, 8), base[1] + h * 0.8, 0.35);
+        else overlay?.scene.remove(s.c.root);
         onTitle.splice(i, 1);
         continue;
       }
@@ -225,12 +257,38 @@ export function createParty({ stage, physics }) {
       s.c.root.scale.set(r.width * 0.6, r.width * 0.55, r.width * 0.6);
       s.c.set(clamp01((ms - s.at) / 700), t);
     }
+    // Flung candles: one rigid, tumbling piece under gravity, bouncing off the
+    // sides of the screen, until it hits the floor; then it breaks apart.
+    const dt = Math.min(0.033, (now - (lastFrame || now)) / 1000);
+    lastFrame = now;
+    const floorY = physics.floorY(0.5);
+    for (let i = flying.length - 1; i >= 0; i--) {
+      const f = flying[i];
+      f.vy += 2300 * dt;
+      f.x += f.vx * dt;
+      f.y += f.vy * dt;
+      f.a += f.w * dt;
+      f.yaw += f.wy * dt;
+      if ((f.x < 0 && f.vx < 0) || (f.x > innerWidth && f.vx > 0)) { f.vx *= -0.7; f.w *= -1; }
+      const ux = Math.sin(f.a), uy = -Math.cos(f.a); // base -> top
+      const base = [f.x - (ux * f.len) / 2, f.y - (uy * f.len) / 2];
+      const top = [f.x + (ux * f.len) / 2, f.y + (uy * f.len) / 2];
+      f.c.root.position.set(base[0], -base[1], 60);
+      f.c.root.rotation.set(f.tilt, f.yaw, -f.a);
+      f.c.set(1, t);
+      if ((Math.max(base[1], top[1]) >= floorY && f.vy > 0) || now - f.born > 6000) {
+        breakApart(base, top, Math.max(5, f.len * 0.24), f.c.color, base[1] > top[1] ? base[0] : top[0]);
+        sound.thud?.();
+        overlay?.scene.remove(f.c.root);
+        flying.splice(i, 1);
+      }
+    }
     flush();
 
     if (overlay) overlay.renderer.render(overlay.scene, overlay.camera);
-    if (!onTitle.length) dropOverlay();
-    if (onStage.length || onTitle.length) requestAnimationFrame(frame);
-    else running = false;
+    if (!onTitle.length && !flying.length) dropOverlay();
+    if (onStage.length || onTitle.length || flying.length) requestAnimationFrame(frame);
+    else { running = false; lastFrame = 0; }
   };
   const run = () => { if (!running) { running = true; requestAnimationFrame(frame); } };
 

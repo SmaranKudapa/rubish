@@ -129,7 +129,7 @@ function playNote(n) {
 
 // The rest of the song plays itself on the squares (each one presses down as
 // its note plays), and the party starts: candles on every cube, balloons.
-const birthday = createParty({ stage, physics });
+const birthday = createParty({ stage, physics, sound: sfx });
 async function sing() {
   if (mode === 'nuke') return;
   singing = true;
