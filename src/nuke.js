@@ -1,10 +1,11 @@
 // The NUKE easter egg (type NUKE and submit; the word box locks).
 //
 //  0.0s  a little launcher rises out of the floor
-//  1.2s  a 3D missile launches and flies, at one steady speed, along a single
-//        smooth arc to the achievement button (10s total). The screen warms to
-//        red, the alarm wails and the page shakes harder as it gets close.
-// 10.0s  impact on the button: flash, full red world, every cube explodes, the
+//  1.2s  a 3D missile launches from a 3D launcher and flies, at one steady
+//        speed, along an unpredictable rollercoaster path to the achievement
+//        button (22s), growing as it comes. The screen warms to red, the alarm
+//        wails and the page shakes harder as it gets close.
+// 22.0s  impact on the button: flash, full red world, every cube explodes, the
 //        UI falls apart and a slow, animated mushroom cloud rises behind it
 //        all. "NUKE" lifts out of the word box to the middle of the screen,
 //        gains a D, and the letters flip into cubes. Then "press any key".
@@ -20,32 +21,45 @@ const clamp01 = (t) => Math.min(1, Math.max(0, t));
 const lerp = (a, b, t) => a + (b - a) * t;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// ---------- Pixel launcher ----------
-const COLORS = { k: '#111111', d: '#3d4a3a', g: '#6b7a63', l: '#9aa58f', y: PALETTE.yellow };
-const LAUNCHER = [
-  '....kkkkkkkk....',
-  '...kllllllllk...',
-  '..kkkkkkkkkkkk..',
-  '..kdk......kdk..',
-  'kkkkkkkkkkkkkkkk',
-  'kykkykkykkykkykk',
-  'kkykkykkykkykkyk',
-  'kgggggggggggggdk',
-  'kgdddgggggdddgdk',
-  'kkkkkkkkkkkkkkkk',
-];
-function spriteFromRows(rows) {
-  const w = Math.max(...rows.map((r) => r.length));
-  const c = document.createElement('canvas');
-  c.width = w;
-  c.height = rows.length;
-  const g = c.getContext('2d');
-  rows.forEach((row, y) => [...row].forEach((ch, x) => {
-    if (!COLORS[ch]) return;
-    g.fillStyle = COLORS[ch];
-    g.fillRect(x, y, 1, 1);
-  }));
-  return { url: c.toDataURL(), w, h: rows.length };
+// ---------- 3D launcher ----------
+// An olive box with hazard stripes, a launch tube and a hatch that swings
+// open. The base's bottom sits at y = -0.45. `mouth` marks the top of the tube.
+function buildLauncher() {
+  const lam = (c) => new THREE.MeshLambertMaterial({ color: c });
+  const root = new THREE.Group();
+  const body = new THREE.Group(); // turned a little so it reads as 3D
+  body.rotation.set(0.28, -0.55, 0);
+  root.add(body);
+  body.add(new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.9, 2.2), lam(0x55613f)));
+  // Hazard stripes along the front and side
+  for (let i = 0; i < 8; i++) {
+    const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.3, 0.04), lam(i % 2 ? 0x111111 : PALETTE.yellow));
+    stripe.position.set(-1.4 + i * 0.4, 0.12, 1.12);
+    body.add(stripe);
+  }
+  for (let i = 0; i < 5; i++) {
+    const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.3, 0.44), lam(i % 2 ? 0x111111 : PALETTE.yellow));
+    stripe.position.set(1.62, 0.12, -0.88 + i * 0.44);
+    body.add(stripe);
+  }
+  const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.85, 1.7, 18), lam(0x2f3529));
+  tube.position.y = 1.3;
+  const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.88, 0.88, 0.16, 18), lam(0x9aa58f));
+  rim.position.y = 2.15;
+  const hole = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 0.02, 18), lam(0x0b0b0b));
+  hole.position.y = 2.24;
+  body.add(tube, rim, hole);
+  // Hatch, hinged at the back edge of the rim
+  const hinge = new THREE.Group();
+  hinge.position.set(-0.88, 2.24, 0);
+  const lid = new THREE.Mesh(new THREE.BoxGeometry(1.76, 0.1, 1.76), lam(0x6b7a63));
+  lid.position.x = 0.88;
+  hinge.add(lid);
+  body.add(hinge);
+  const mouth = new THREE.Object3D();
+  mouth.position.y = 2.3;
+  body.add(mouth);
+  return { root, hatch: hinge, mouth };
 }
 
 // ---------- 3D missile ----------
@@ -96,31 +110,48 @@ function cubic(p0, p1, p2, p3, t) {
   ];
 }
 
-// Points: straight up out of the launcher, two big wobbly spiral loops around
-// the middle of the screen (stalling for suspense), then a swoop onto the target.
-function flightPoints(W, H, start, target) {
-  const pts = [];
-  const cx = W * 0.5, cy = H * 0.46;
-  const rx = Math.max(cx - start[0], W * 0.25), ry = H * 0.3;
-  const loopStart = [cx - rx, cy];
-  for (let i = 0; i <= 40; i++) pts.push(cubic(start, [start[0], lerp(start[1], cy, 0.6)], [loopStart[0], cy + ry * 0.3], loopStart, i / 40));
-  // Loops: from the left-most point, clockwise on screen, two turns, slowly
-  // tightening, with a little wobble so it never looks mechanical.
-  const turns = 2;
-  const N = 600;
-  for (let i = 1; i <= N; i++) {
-    const k = i / N;
-    const a = Math.PI + k * turns * Math.PI * 2;
-    const shrink = 1 - 0.32 * k;
-    const wob = 1 + 0.08 * Math.sin(k * Math.PI * 9);
-    pts.push([cx + Math.cos(a) * rx * shrink * wob, cy - Math.sin(a) * ry * shrink * wob]);
+// Smooth curve through points (centripetal Catmull-Rom: no loops or cusps).
+function catmullRom(points, perSeg = 50) {
+  const P = [points[0], ...points, points[points.length - 1]];
+  const out = [];
+  const knot = (a, b) => Math.max(1e-3, Math.sqrt(Math.hypot(b[0] - a[0], b[1] - a[1])));
+  for (let i = 0; i < P.length - 3; i++) {
+    const [p0, p1, p2, p3] = [P[i], P[i + 1], P[i + 2], P[i + 3]];
+    const t0 = 0, t1 = t0 + knot(p0, p1), t2 = t1 + knot(p1, p2), t3 = t2 + knot(p2, p3);
+    const mix = (a, b, ta, tb, t) => [((tb - t) * a[0] + (t - ta) * b[0]) / (tb - ta), ((tb - t) * a[1] + (t - ta) * b[1]) / (tb - ta)];
+    for (let s = i ? 1 : 0; s <= perSeg; s++) {
+      const t = lerp(t1, t2, s / perSeg);
+      const a1 = mix(p0, p1, t0, t1, t), a2 = mix(p1, p2, t1, t2, t), a3 = mix(p2, p3, t2, t3, t);
+      const b1 = mix(a1, a2, t0, t2, t), b2 = mix(a2, a3, t1, t3, t);
+      out.push(mix(b1, b2, t1, t2, t));
+    }
   }
-  // Swoop: up over the top and down onto the target.
-  const last = pts[pts.length - 1];
-  for (let i = 1; i <= 120; i++) {
-    pts.push(cubic(last, [last[0], last[1] - ry * 1.1], [lerp(last[0], target[0], 0.6), Math.max(10, target[1] - H * 0.12)], target, i / 120));
+  return out;
+}
+
+// An unpredictable rollercoaster: straight up out of the launcher, then a run
+// of random swoops, climbs and dips around the screen (never doubling back
+// sharply, never leaving the screen), then a clear dive onto the target.
+function rollercoaster(W, H, start, target) {
+  const pad = Math.min(W, H) * 0.12;
+  const pts = [start, [start[0], start[1] - H * 0.22]];
+  let heading = -Math.PI / 2; // up
+  for (let i = 0; i < 8; i++) {
+    const p = pts[pts.length - 1];
+    let next = null;
+    for (let tries = 0; tries < 40 && !next; tries++) {
+      const h = heading + (Math.random() - 0.5) * 2.4; // turn up to ~±70°
+      const step = Math.min(W, H) * (0.3 + Math.random() * 0.25);
+      const c = [p[0] + Math.cos(h) * step, p[1] + Math.sin(h) * step];
+      if (c[0] > pad && c[0] < W - pad && c[1] > pad && c[1] < H - pad * 1.6) { next = c; heading = h; }
+    }
+    if (!next) heading += Math.PI * 0.6; // boxed in: swing around and try again
+    else pts.push(next);
   }
-  return pts;
+  // Line up a dive onto the target from below-left.
+  pts.push([target[0] - W * 0.2, target[1] + H * 0.28]);
+  pts.push(target);
+  return catmullRom(pts);
 }
 
 // Arc-length lookup: point and heading at a fraction of the total length.
@@ -247,16 +278,8 @@ export async function runNuke({ stage, physics, title, uiEls, input, target, dat
   const tint = el('nuke-tint', layer);
   const vignette = el('nuke-vignette', layer);
 
-  // Launcher (pixel art) on the floor.
   const floorTop = physics.floorY(0);
-  const ls = spriteFromRows(LAUNCHER);
-  const LS = 4;
-  const launcher = el('nuke-sprite', layer, 'img');
-  launcher.src = ls.url;
-  launcher.alt = '';
-  const lw = ls.w * LS, lh = ls.h * LS;
-  Object.assign(launcher.style, { width: `${lw}px`, height: `${lh}px` });
-  const lx = W * 0.18, ly = floorTop - lh / 2 + 6;
+  const lx = W * 0.18; // where the launcher stands
 
   // 3D missile, drawn on its own transparent canvas over the page.
   const canvas = el('nuke-3d', layer, 'canvas');
@@ -272,12 +295,20 @@ export async function runNuke({ stage, physics, title, uiEls, input, target, dat
   missile.root.visible = false;
   scene.add(missile.root);
   const LEN = 4.6; // model length in units
-  const basePx = 64; // on-screen length at launch
+  const basePx = 48; // on-screen length at launch...
+  const endPx = Math.max(input.getBoundingClientRect().width * 1.05, 200); // ...and at impact
 
-  // The path: straight up out of the launcher, one smooth arc, down onto the button.
+  // 3D launcher standing on the floor.
+  const launcher = buildLauncher();
+  const LSCALE = 30; // px per unit
+  launcher.root.scale.setScalar(LSCALE);
+  scene.add(launcher.root);
+  const launcherY = (rise) => -(floorTop - 0.45 * LSCALE) - (1 - rise) * 90;
+
+  // The path is made at launch time, starting at the top of the launch tube.
   const tr = target.getBoundingClientRect();
   const tx = tr.left + tr.width / 2, ty = tr.top + tr.height / 2;
-  const path = constantSpeed(flightPoints(W, H, [lx, ly - lh / 2], [tx, ty]));
+  let path = null;
 
   const panelish = [document.querySelector('.title'), document.querySelector('.panel')];
   sound.siren?.(TOTAL / 1000);
@@ -290,20 +321,24 @@ export async function runNuke({ stage, physics, title, uiEls, input, target, dat
       const ms = now - t0;
       const t = ms / 1000;
 
-      // Launcher rises out of the floor.
+      // Launcher rises out of the floor; its hatch swings open.
       const up = easeInOut(clamp01(ms / LAUNCH));
-      launcher.style.transform = `translate(${lx - lw / 2}px, ${ly - lh / 2 + (1 - up) * 80}px)`;
+      launcher.root.position.set(lx, launcherY(up), 0);
+      launcher.hatch.rotation.z = 1.9 * easeInOut(clamp01((ms - 500) / 700));
 
       if (ms >= LAUNCH) {
         if (!launched) {
           launched = true;
+          launcher.root.updateMatrixWorld(true);
+          const mouth = launcher.mouth.getWorldPosition(new THREE.Vector3());
+          path = constantSpeed(rollercoaster(W, H, [mouth.x, -mouth.y], [tx, ty]));
           missile.root.visible = true;
           sound.launch?.();
         }
         // Same speed the whole way: position is a straight fraction of the path length.
         const f = (ms - LAUNCH) / (TOTAL - LAUNCH);
         const p = path(f);
-        const px = basePx * (1 + 0.6 * f); // a little bigger as it nears the front
+        const px = lerp(basePx, endPx, f); // grows steadily all the way to the target
         missile.root.position.set(p.x, -p.y, 0);
         missile.root.scale.setScalar(px / LEN);
         missile.root.rotation.z = Math.atan2(-p.dy, p.dx) - Math.PI / 2;
@@ -333,7 +368,6 @@ export async function runNuke({ stage, physics, title, uiEls, input, target, dat
   sound.nukeBoom?.();
   renderer.dispose();
   canvas.remove();
-  launcher.remove();
   const flash = el('nuke-flash', layer);
   flash.style.opacity = '1';
   requestAnimationFrame(() => { flash.style.transition = 'opacity 1.6s ease-out'; flash.style.opacity = '0'; });
@@ -361,13 +395,16 @@ export async function runNuke({ stage, physics, title, uiEls, input, target, dat
   stage.shatterAll();
   title.explodeAll();
   physics.confetti(160);
+  // One piece of debris flies into the glass, cracks it, and sticks there
+  // (half in the screen) until it becomes the D of NUKED.
+  let stuck = null;
   setTimeout(() => {
     const p = physics.pickPiece();
     if (!p) return; // no debris, no crack
-    const cx2 = W * (0.25 + Math.random() * 0.5), cy2 = H * (0.2 + Math.random() * 0.4);
+    const cx2 = W * (0.22 + Math.random() * 0.56), cy2 = H * (0.18 + Math.random() * 0.2);
     physics.sendTo(p, {
-      x: cx2, y: cy2, size: Math.min(W, H) * 0.22, dur: 750, lift: 0, fade: 450,
-      onArrive: () => { crackScreen(cx2, cy2); sound.glass?.(); },
+      x: cx2, y: cy2, size: Math.min(W, H) * 0.15, dur: 750, lift: 0, stay: true, freeze: true,
+      onArrive: () => { crackScreen(cx2, cy2); sound.glass?.(); stuck = p; },
     });
   }, 1500);
 
@@ -419,17 +456,28 @@ export async function runNuke({ stage, physics, title, uiEls, input, target, dat
   stage.fx.shake = 0;
   await sleep(6900);
 
-  // ...gains a D: its slot opens slowly so NUKE slides over, then it fades in...
+  // ...gains a D: its slot opens slowly so NUKE slides over...
   const d = cubes[4];
   d.classList.add('squeezed');
   word.appendChild(d);
   void d.offsetWidth;
   d.classList.remove('squeezed');
   sound.whoosh?.();
-  await sleep(1600);
-  d.classList.add('letter-in');
-  sound.blip?.(5);
-  await sleep(2800);
+  await sleep(2100);
+  // ...and the piece stuck in the glass pulls free, flies into the slot and
+  // turns into the D (or, with no stuck piece, the D just fades in).
+  const showD = () => { d.classList.add('letter-in'); sound.blip?.(5); };
+  if (stuck) {
+    const r = d.getBoundingClientRect();
+    sound.whoosh?.();
+    physics.sendTo(stuck, {
+      x: r.left + r.width / 2, y: r.top + r.height / 2, size: m * 0.9, dur: 1700, lift: 110, fade: 1100, onArrive: showD,
+    });
+    await sleep(1700);
+  } else {
+    showD();
+  }
+  await sleep(2600);
 
   // ...and the letters flip into cubes, like the opening.
   cubes.forEach((c, i) => setTimeout(() => { c.classList.add('cube-in'); sound.tick?.(0.2); }, i * 120));
