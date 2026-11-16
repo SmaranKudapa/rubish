@@ -255,7 +255,8 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
 
   // Blow a cube into its 26 cubies (handed to the physics), then drop a fresh
   // copy of it back in from the top.
-  function shatter(t) {
+  // respawn = false leaves it gone (used by the nuke).
+  function shatter(t, respawn = true) {
     const c = t.cube;
     c.exploding = true;
     const pxPerUnit = view.height / 2 / (camZ * TAN15);
@@ -276,11 +277,12 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
       }
       return { x, y, dx: x - cx, dy: y - cy, size: 0.99 * sc.x * pxPerUnit, quat: cb.getWorldQuaternion(q).clone(), faces };
     });
-    onShatter(pieces);
+    onShatter(pieces, { byZoom: respawn });
 
     t.group.visible = false;
     c.setSpread(0);
     c.spread = 0;
+    if (!respawn) return;
     const set = t.slot ? (y) => { t.slot.y = y; } : (y) => { fx.mainY = y; };
     setTimeout(async () => {
       // Fall back in from above the very top of the window (ease in), then a
@@ -435,6 +437,11 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
     },
 
     hasWord: () => !!word,
+
+    // Blow up every cube on stage for good (the nuke).
+    shatterAll() {
+      for (const t of allTargets()) if (t.group.visible && !t.cube.exploding) shatter(t, false);
+    },
 
     // Slide the main cube (showing the last letter) into its place at the end of
     // the word, then drop the earlier letters in one by one.

@@ -180,6 +180,19 @@ export function buildTitle(el, data, { onExplode, sound = {} }) {
     // its slot closes up. Resolves once only RUBISH is left.
     // gate(): awaited while the plain text is up (e.g. to wait for a click so
     // sound is allowed).
+    // Blow up every title cube at once, for good (the nuke).
+    explodeAll() {
+      opening = true; // no more clicking them
+      for (const r of recs) {
+        if (r.mini.classList.contains('gone')) continue;
+        const rect = r.inner.getBoundingClientRect();
+        const size = r.mini.getBoundingClientRect().width * 1.15;
+        r.busy = true;
+        r.mini.classList.add('gone');
+        onExplode(rect.left + rect.width / 2, rect.top + rect.height / 2, size);
+      }
+    },
+
     async playIntro({ onBoom, gate = async () => {} }) {
       opening = true;
       const extra = makeMini(EXTRA_B, 3, true);
