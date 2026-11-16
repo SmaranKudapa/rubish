@@ -81,16 +81,22 @@ export function faceColors(front, top) {
   return { U: top, F: front, R: colorOfVec(r), D: colorOfVec(neg(u)), B: colorOfVec(neg(f)), L: colorOfVec(neg(r)) };
 }
 
-// The background color used for each letter color (must be an adjacent face).
-const PARTNER = { white: 'blue', yellow: 'blue', red: 'white', orange: 'white', green: 'white', blue: 'white' };
+export const OPPOSITE = { white: 'yellow', yellow: 'white', red: 'orange', orange: 'red', green: 'blue', blue: 'green' };
 
-// How to hold the cube so `entry`'s moves draw the glyph in `color`.
-// Solutions were generated with the letter on F and background U (glyph center on),
-// or letter U on background F (center off), so we pick front/top accordingly.
-export function holdFor(entry, color) {
-  const bg = PARTNER[color];
+// How to hold the cube, and which moves to use, so `entry` draws the glyph in
+// `letter` on `bg`. The glyph's center sticker can't move, so whichever color
+// the center needs faces you. Two solution sets exist:
+//  - adjacent colors: the other color is on top    (entry.moves)
+//  - opposite colors: the other color is at the back (entry.opposite.moves)
+export function holdFor(entry, letter, bg) {
+  if (letter === bg) throw new Error('Letter and background colors must differ');
   const centerOn = entry.letterColor === 'F';
-  return { letter: color, bg, front: centerOn ? color : bg, top: centerOn ? bg : color };
+  const front = centerOn ? letter : bg;
+  const other = centerOn ? bg : letter;
+  if (OPPOSITE[front] !== other) return { letter, bg, front, top: other, moves: entry.moves };
+  // Opposite pair: any color beside the front can go on top.
+  const top = ['white', 'green', 'red'].find((c) => c !== front && c !== other);
+  return { letter, bg, front, top, moves: entry.opposite.moves };
 }
 
 // ---------- The cube ----------
