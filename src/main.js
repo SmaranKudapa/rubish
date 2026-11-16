@@ -518,7 +518,7 @@ function tossKey(btn, label = null) {
     // Slams into the cube and bursts into pieces of cube confetti.
     chip.remove();
     impactFx(x1, y1, { size: 2.4, shards: 0 });
-    if (!REDUCED) physics.burst(x1, y1, null, label ? 22 : 14);
+    if (!REDUCED) physics.burst(x1, y1, 'white', label ? 22 : 14); // white, like the chip
     stage.punch(1);
     sfx.impact();
   }));
