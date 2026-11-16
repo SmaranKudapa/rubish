@@ -11,6 +11,7 @@ import { sfx, isMuted, setMuted, audioRunning, waitForAudio } from './audio.js';
 import { createBackdrop } from './backdrop.js';
 import { installCursor, canHover } from './cursor.js';
 import { createAchievements, iconURL } from './achievements.js';
+import { runNuke } from './nuke.js';
 
 const MAX_LEN = 12;
 const FACES = 'URFDLB';
@@ -32,10 +33,10 @@ const ach = createAchievements({
 RubiksCube.onTurn = (duration) => sfx.turn(duration);
 const cube = new RubiksCube();
 const stage = createStage($('cube'), cube, {
-  onShatter: (pieces) => {
+  onShatter: (pieces, { byZoom } = {}) => {
     physics.shatter(pieces);
     sfx.explode();
-    ach.unlock('kaboom');
+    if (byZoom) ach.unlock('kaboom');
     const cx = pieces.reduce((a, p) => a + p.x, 0) / pieces.length;
     const cy = pieces.reduce((a, p) => a + p.y, 0) / pieces.length;
     boom(cx, cy);
@@ -248,6 +249,7 @@ async function start(auto = false) {
   const text = input.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, MAX_LEN);
   if (!text) return shake();
   if (mode !== 'landing' && mode !== 'done') return;
+  if (text === 'NUKE') return launchNuke(); // easter egg
   mode = 'intro';
   loopToken++;
   input.blur();
@@ -266,6 +268,21 @@ async function start(auto = false) {
   }
   stage.setSway(0.35);
   beginLetter();
+}
+
+// ---------- NUKE (type NUKE and submit) ----------
+async function launchNuke() {
+  mode = 'nuke';
+  loopToken++; // stop the landing shuffle
+  recolorToken++;
+  input.value = '';
+  input.blur();
+  caption('');
+  const uiEls = [
+    ...document.querySelectorAll('#swatches .swatch, #swatches-bg .swatch'),
+    $('char'), $('go'), $('mute'), $('ach-btn'), $('caption'),
+  ];
+  await runNuke({ stage, physics, title, uiEls, sound: sfx, canHover, onImpact: () => ach.unlock('nuke') });
 }
 
 // Scramble hard while shaking, then solve back to a clean cube, still shaking
