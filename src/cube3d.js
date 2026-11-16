@@ -124,17 +124,28 @@ const TRAIL_VS = /* glsl */ `
     vUv = uv;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }`;
+// Retro look: the arc is cut into a grid of square "pixels" with gaps between
+// them. Brightness comes in a few hard steps, and pixels toward the tail drop
+// out at random, so it reads like an 8-bit sprite trail.
 const TRAIL_FS = /* glsl */ `
   uniform float uProgress;
   uniform float uFade;
   uniform float uDir;
+  uniform vec2 uCells;
   varying vec2 vUv;
+  float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
   void main() {
-    float u = uDir > 0.0 ? vUv.x : 1.0 - vUv.x; // 0 where the turn started
+    vec2 g = floor(vUv * uCells);
+    vec2 f = fract(vUv * uCells);
+    if (f.x < 0.14 || f.y < 0.14) discard;        // gaps between pixels
+    float cx = (g.x + 0.5) / uCells.x;
+    float u = uDir > 0.0 ? cx : 1.0 - cx;          // 0 where the turn started
     if (u > uProgress) discard;
-    float s = u / max(uProgress, 0.001);         // 0 at the tail, 1 at the head
-    float band = smoothstep(0.0, 0.3, vUv.y) * smoothstep(1.0, 0.7, vUv.y);
-    gl_FragColor = vec4(1.0, 1.0, 1.0, pow(s, 1.8) * band * uFade * 0.6);
+    float s = u / max(uProgress, 0.001);           // 0 at the tail, 1 at the head
+    if (hash(g) > s * 1.15 + 0.1) discard;         // scattered pixels near the tail
+    float edge = (g.y < 0.5 || g.y > uCells.y - 1.5) ? 0.6 : 1.0;
+    float a = floor(pow(s, 1.3) * 4.0 + 0.5) / 4.0; // hard brightness steps
+    gl_FragColor = vec4(1.0, 1.0, 1.0, a * edge * uFade * 0.8);
   }`;
 
 const tmpM = new THREE.Matrix4();
@@ -239,6 +250,7 @@ export class RubiksCube {
       return Promise.resolve();
     }
     const trail = this._trail(axis, layer, angle);
+    RubiksCube.onTurn?.(duration);
     return new Promise((resolve) => {
       const t0 = performance.now();
       const step = (now) => {
@@ -267,7 +279,11 @@ export class RubiksCube {
     const whole = layer === null;
     const geo = new THREE.CylinderGeometry(2.3, 2.3, whole ? 3.2 : 0.95, 48, 1, true, center - len / 2, len);
     const mat = new THREE.ShaderMaterial({
-      uniforms: { uProgress: { value: 0 }, uFade: { value: 1 }, uDir: { value: Math.sign(angle) } },
+      uniforms: {
+        uProgress: { value: 0 }, uFade: { value: 1 }, uDir: { value: Math.sign(angle) },
+        // About 0.24 world units per pixel along the arc and across the band.
+        uCells: { value: new THREE.Vector2(Math.round((2.3 * len) / 0.24), whole ? 13 : 4) },
+      },
       vertexShader: TRAIL_VS,
       fragmentShader: TRAIL_FS,
       transparent: true,
@@ -345,3 +361,6 @@ export class RubiksCube {
     return out;
   }
 }
+
+// Optional hook, called at the start of every animated turn (used for sound).
+RubiksCube.onTurn = null;
