@@ -119,6 +119,45 @@ export const sfx = {
     tone({ type: 'triangle', freq: 500 + Math.random() * 500, dur: 0.035, vol: 0.015 + v * 0.05 });
   },
   pop() { tone({ freq: 500, to: 1300, dur: 0.08, vol: 0.08 }); },
+  // NUKE: an air-raid siren that climbs for `sec` seconds, ending in a falling
+  // whistle as it arrives.
+  siren(sec) {
+    if (!ready()) return;
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(520, t);
+    o.frequency.linearRampToValueAtTime(780, t + sec);
+    const lfo = ctx.createOscillator();
+    lfo.frequency.setValueAtTime(0.8, t);
+    lfo.frequency.linearRampToValueAtTime(2.4, t + sec);
+    const lfoGain = ctx.createGain();
+    lfoGain.gain.value = 190;
+    lfo.connect(lfoGain).connect(o.frequency);
+    const f = ctx.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.value = 1700;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.045, t + 0.8);
+    g.gain.linearRampToValueAtTime(0.1, t + sec - 0.15);
+    g.gain.linearRampToValueAtTime(0.0001, t + sec);
+    o.connect(f).connect(g).connect(master);
+    o.start(t);
+    lfo.start(t);
+    o.stop(t + sec + 0.05);
+    lfo.stop(t + sec + 0.05);
+    tone({ type: 'sine', freq: 2600, to: 280, dur: 3, vol: 0.08, delay: sec - 3, attack: 2.6 });
+  },
+  launch() {
+    noise({ dur: 1.4, vol: 0.22, freq: 200, to: 3200, q: 0.8 });
+    tone({ type: 'triangle', freq: 95, to: 40, dur: 0.8, vol: 0.25 });
+  },
+  nukeBoom() {
+    noise({ dur: 3.6, vol: 0.7, freq: 3200, to: 40, q: 0.5, type: 'lowpass' });
+    tone({ type: 'triangle', freq: 75, to: 18, dur: 3.2, vol: 0.6 });
+    noise({ dur: 3, vol: 0.3, freq: 320, to: 45, q: 0.6, type: 'lowpass', delay: 0.9 });
+  },
   // Achievement unlocked: a bright little coin-and-sparkle jingle.
   achievement() {
     [[83, 0], [88, 0.09], [91, 0.18], [95, 0.27]].forEach(([n, t]) => tone({ freq: NOTE(n), dur: n === 95 ? 0.35 : 0.08, vol: 0.08, delay: t }));
