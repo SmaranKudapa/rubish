@@ -306,24 +306,15 @@ async function armSound(mute) {
     zapButton(btn, mute ? 'MUTED' : 'SOUND ON');
     if (mute) ach.unlock('silencer');
   };
-  // The arm grows out of the right side of the rightmost cube on stage (the
-  // big cubes in the middle of the screen), if there is one.
-  const outlines = stage.obstacles();
-  let from = null;
-  for (const hull of outlines) {
-    const right = Math.max(...hull.map((p) => p[0]));
-    if (!from || right > from.right) {
-      const ys = hull.map((p) => p[1]);
-      const xs = hull.map((p) => p[0]);
-      from = { right, left: Math.min(...xs), cy: (Math.min(...ys) + Math.max(...ys)) / 2 };
-    }
-  }
+  // The arm grows out of the right face's center piece of the rightmost cube
+  // on stage (the big cubes in the middle of the screen), if there is one.
+  const from = stage.rightmostCube();
   if (from && !REDUCED) {
     const b = btn.getBoundingClientRect();
     await robotArm({
-      from: { x: from.right - (from.right - from.left) * 0.12, y: from.cy },
+      stage, cube: from,
       to: { x: b.left + b.width / 2, y: b.top + b.height / 2 },
-      color: 'red', physics, sound: sfx, onPress: press,
+      physics, sound: sfx, onPress: press,
     });
   } else {
     press();
