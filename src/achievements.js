@@ -24,7 +24,26 @@ function twinCubes() {
   return rows.map((r) => r.join(''));
 }
 
+// Radiation symbol: yellow disc, black trefoil and outline.
+function trefoil() {
+  const n = 13, c = 6;
+  const rows = [];
+  for (let y = 0; y < n; y++) {
+    let row = '';
+    for (let x = 0; x < n; x++) {
+      const dx = x - c, dy = y - c, r = Math.hypot(dx, dy);
+      if (r > 6.4) row += '.';
+      else if (r > 5.5 || r < 1.2) row += 'k';
+      else if (r < 2) row += 'y';
+      else row += ((Math.atan2(dy, dx) * 180) / Math.PI + 450) % 120 < 60 && r < 5 ? 'k' : 'y';
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+
 const ICONS = {
+  nuke: trefoil(),
   trophy: [
     '..kkkkkkkk..',
     '.kyyyyyyyyk.',
@@ -81,8 +100,9 @@ export function iconURL(name) {
 
 export const ACHIEVEMENTS = [
   { id: 'first-word', icon: 'trophy', title: 'FIRST WORD', desc: 'Spell out your first word.' },
-  { id: 'kaboom', icon: 'boom', title: 'KABOOM', desc: 'Zoom into a cube until it bursts apart.', secret: true },
-  { id: 'copycat', icon: 'twins', title: 'COPYCAT', desc: 'Click a flying cube to clone it.', secret: true },
+  { id: 'kaboom', icon: 'boom', title: 'ZOOM BOOM', desc: 'Zoom into a cube until it bursts apart.', secret: true },
+  { id: 'copycat', icon: 'twins', title: 'CLONE', desc: 'Click a flying cube to clone it.', secret: true },
+  { id: 'nuke', icon: 'nuke', title: 'NUKE', desc: 'Send in a nuke by typing nuke.', secret: true },
 ];
 
 export function createAchievements({ button, panel, list, count, close, toast, sound = {} }) {
