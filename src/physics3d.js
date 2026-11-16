@@ -14,8 +14,10 @@ const FLOOR_BOUNCE = 0.84; // the floor is springy: pieces keep bouncing
 const SUBSTEPS = 4;
 const CELL = 40;
 const DEPTH_TOUCH = 0.28; // pieces closer than this in depth can collide
+const FLOOR_LIFT = 32; // px between the nearest floor contact and the bottom of the window
 
 const easeInCubic = (t) => t * t * t;
+const easeInOutCubic = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const rand = (a, b) => a + Math.random() * (b - a);
 const shuffle = (a) => {
@@ -83,7 +85,9 @@ export function createPhysics({ back, front, obstacles = () => [], sound = {} })
   const axis = new THREE.Vector3();
   const dq = new THREE.Quaternion();
 
-  const floorOf = (p) => H - 4 - (1 - p.z) * 12; // farther pieces rest higher up
+  // The floor sits a little above the bottom (room for reflections); farther
+  // pieces rest higher up, like a ground plane going back into the screen.
+  const floorOf = (p) => H - FLOOR_LIFT - (1 - p.z) * 14;
   const depthScale = (z) => 1 + z * 0.3;
 
   function land(p, now) {
@@ -181,7 +185,7 @@ export function createPhysics({ back, front, obstacles = () => [], sound = {} })
 
   function step(dt, now, obs) {
     for (const p of parts) {
-      if (p.held) continue; // follows the pointer instead
+      if (p.held || p.flying) continue; // follows the pointer / is flying to a target
       p.vy += GRAVITY * dt;
       p.x += p.vx * dt;
       p.y += p.vy * dt;
@@ -226,6 +230,7 @@ export function createPhysics({ back, front, obstacles = () => [], sound = {} })
           const d2 = dx * dx + dy * dy;
           if (d2 >= R * R || d2 === 0) continue;
           const d = Math.sqrt(d2), nx = dx / d, ny = dy / d;
+          if (a.flying || b.flying) continue;
           const ia = a.held ? 0 : 1 / a.m, ib = b.held ? 0 : 1 / b.m;
           if (!ia && !ib) continue;
           const s = (R - d) / (ia + ib);
@@ -258,7 +263,25 @@ export function createPhysics({ back, front, obstacles = () => [], sound = {} })
     for (let i = 0; i < SUBSTEPS; i++) step(dt / SUBSTEPS, now, obs);
 
     for (const p of parts) {
-      if (p.landed !== null && !p.held) {
+      // Flying to a target: an eased arc from wherever it was to the target,
+      // growing to the target's size, then hand off to onArrive.
+      if (p.home && now >= p.home.t0) {
+        const h = p.home;
+        if (!p.flying) {
+          p.flying = true;
+          Object.assign(h, { sx: p.x, sy: p.y, ss: p.size });
+        }
+        const k = Math.min(1, (now - h.t0) / h.dur);
+        const e = easeInOutCubic(k);
+        p.x = h.sx + (h.x - h.sx) * e;
+        p.y = h.sy + (h.y - h.sy) * e - Math.sin(Math.PI * e) * h.lift;
+        p.size = h.ss + (h.size - h.ss) * e;
+        p.r = p.size * 0.5;
+        if (k >= 1) {
+          p.done = true;
+          h.onArrive?.();
+        }
+      } else if (p.landed !== null && !p.held) {
         const k = (now - p.landed - p.delay) / p.dur;
         if (k > 0) {
           p.size = p.size0 * (1 - easeInCubic(Math.min(1, k)));
@@ -275,7 +298,7 @@ export function createPhysics({ back, front, obstacles = () => [], sound = {} })
       p.mesh.scale.setScalar(Math.max(p.size, 0.001));
     }
     parts = parts.filter((p) => {
-      const keep = p.held || (p.size > 0.4 && now - p.born < 16000);
+      const keep = !p.done && (p.held || p.home || (p.size > 0.4 && now - p.born < 16000));
       if (!keep) p.mesh.parent.remove(p.mesh);
       return keep;
     });
@@ -295,7 +318,7 @@ export function createPhysics({ back, front, obstacles = () => [], sound = {} })
   function pieceAt(x, y) {
     let best = null;
     for (const p of parts) {
-      if (p.size < 4) continue;
+      if (p.size < 4 || p.home) continue;
       if (Math.hypot(p.x - x, p.y - y) <= p.r + PICK_PAD && (!best || p.z > best.z)) best = p;
     }
     return best;
@@ -382,7 +405,24 @@ export function createPhysics({ back, front, obstacles = () => [], sound = {} })
 
   return {
     // For debugging/testing: where the pieces are right now.
-    pieces: () => parts.map((p) => ({ x: p.x, y: p.y, r: p.r, held: p.held, size: p.size })),
+    pieces: () => parts.map((p) => ({
+      x: p.x, y: p.y, r: p.r, z: p.z, held: p.held, size: p.size, flying: !!p.flying,
+      color: PALETTE[p.faces.find((f) => f !== 'black')] || null,
+    })),
+
+    // Where a piece at depth z touches the floor (screen y).
+    floorY: (z) => H - FLOOR_LIFT - (1 - z) * 14,
+
+    // Send a piece flying to a screen point after delay ms, ending at the given
+    // size; it's drawn in front of the page and vanishes on arrival.
+    sendTo(p, { x, y, size, delay = 0, dur = 800, lift = 140, onArrive }) {
+      if (p.z < 0) {
+        p.z = -p.z;
+        layers.front.scene.add(p.mesh);
+      }
+      p.hitsCube = false;
+      p.home = { x, y, size, t0: performance.now() + delay, dur, lift, onArrive };
+    },
 
     // Celebration: 1x1x1 cubes (a different color on every face) rain down from
     // above the top of the page in random directions and speeds, spread over
@@ -418,6 +458,7 @@ export function createPhysics({ back, front, obstacles = () => [], sound = {} })
     // Blow a cube of the given on-screen size into its 26 cubies.
     explode(cx, cy, size, rx = 0.31, ry = 0.42) {
       const tilt = new THREE.Euler(rx, ry, 0);
+      const made = [];
       const c = size / 3;
       const quat = new THREE.Quaternion().setFromEuler(tilt);
       const v = new THREE.Vector3();
@@ -429,7 +470,7 @@ export function createPhysics({ back, front, obstacles = () => [], sound = {} })
         const faces = out.map((o) => (o ? COLOR_ORDER[Math.floor(Math.random() * 6)] : 'black'));
         const len = Math.hypot(v.x, v.y) || 1;
         const power = rand(380, 820);
-        add({
+        made.push(add({
           x: cx + v.x, y: cy - v.y,
           vx: (v.x / len) * power + rand(-80, 80),
           vy: (-v.y / len) * power - rand(250, 550),
@@ -437,8 +478,9 @@ export function createPhysics({ back, front, obstacles = () => [], sound = {} })
           size: c * 0.97, faces, quat,
           w: new THREE.Vector3(rand(-9, 9), rand(-9, 9), rand(-9, 9)),
           delay: 2600, dur: 1500,
-        });
+        }));
       }
+      return made;
     },
   };
 }
