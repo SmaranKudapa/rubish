@@ -117,12 +117,12 @@ function roundedRect(size, r) {
 }
 
 const tmpM = new THREE.Matrix4();
-function snap(c) {
+function snap(c, scale = 1) {
   c.position.set(Math.round(c.position.x / SP) * SP, Math.round(c.position.y / SP) * SP, Math.round(c.position.z / SP) * SP);
   tmpM.makeRotationFromQuaternion(c.quaternion);
   for (let i = 0; i < 16; i++) tmpM.elements[i] = Math.round(tmpM.elements[i]);
   c.quaternion.setFromRotationMatrix(tmpM);
-  c.scale.set(1, 1, 1);
+  c.scale.setScalar(scale);
 }
 
 export class RubiksCube {
@@ -130,6 +130,7 @@ export class RubiksCube {
     this.group = new THREE.Group();
     this.cubies = [];
     this.history = []; // face moves applied since the cube was last solved
+    this.spread = 0; // exploded-view amount: 0 = normal, bigger = wider gaps
     this.queue = Promise.resolve();
     this.materials = {};
     for (const name of COLOR_ORDER) {
@@ -159,6 +160,14 @@ export class RubiksCube {
       this.group.add(c);
       this.cubies.push(c);
     }
+  }
+
+  // Exploded view: the stage scales the whole group by (1 + k) and each cubie
+  // shrinks back by 1 / (1 + k), so cubies keep their size but the gaps grow.
+  setSpread(k) {
+    this.spread = k;
+    const s = 1 / (1 + k);
+    for (const c of this.cubies) c.scale.setScalar(s);
   }
 
   // Queue a move. duration 0 = instant. record=false keeps it out of history.
@@ -200,7 +209,7 @@ export class RubiksCube {
       for (const c of sel) {
         c.applyMatrix4(pivot.matrix);
         this.group.add(c);
-        snap(c);
+        snap(c, 1 / (1 + this.spread));
       }
       this.group.remove(pivot);
     };
