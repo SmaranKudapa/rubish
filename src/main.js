@@ -468,6 +468,7 @@ async function runQueue() {
     job.step++;
     const rushed = queued > 0;
     const ms = job.rush ? 95 : rushed ? 170 : 460;
+    caption(m); // name the move in the landing page's caption box
     await cube.turn(m, speed(ms), job.rush ? linear : rushed ? easeInOutCubic : easeOutBack);
     if (mode !== 'steps') break;
     if (job.step === job.moves.length) {
@@ -482,12 +483,15 @@ async function runQueue() {
 async function back() {
   if (mode !== 'steps' || running || job.step === 0) return;
   job.step--;
-  await cube.turn(invertMove(job.moves[job.step]), speed(380), easeInOutCubic);
+  const m = invertMove(job.moves[job.step]);
+  caption(m);
+  await cube.turn(m, speed(380), easeInOutCubic);
 }
 
 // ---------- Celebration, then the next letter (or the finale) ----------
 async function celebrate() {
   mode = 'celebrate';
+  caption('');
   nextBtn.disabled = true; // stays on screen (greyed out) so confetti can land on it
   // The last letter saves its confetti for the start page with the word on it.
   const last = word.idx === word.chars.length - 1;
@@ -537,6 +541,7 @@ function goHome() {
   job = null;
   word = null;
   flash('');
+  caption('');
   document.body.classList.remove('focus');
   show(steps, false);
   stage.setShake(0, 200);
