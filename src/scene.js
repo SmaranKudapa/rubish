@@ -65,7 +65,10 @@ function settleDrag(d, dt, now, active) {
   }
 }
 
-export function createStage(container, cube) {
+const EXPLODE_AT = 1.6; // spread beyond this blows the cube apart
+
+// onShatter(pieces): called with every cubie of a cube that zoomed apart too far.
+export function createStage(container, cube, { onShatter = () => {} } = {}) {
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.toneMapping = THREE.NoToneMapping;
@@ -143,25 +146,122 @@ export function createStage(container, cube) {
   let dragging = null; // the drag state being moved
   let px = 0, py = 0;
 
-  function pickDrag(e) {
+  // Every cube on stage: { cube, group (spins/scales), drag, slot? }.
+  const mainTarget = () => ({ cube, group: cube.group, drag: mainDrag, slot: null });
+  const allTargets = () => {
+    const out = [];
+    if (cube.group.parent === holder) out.push(mainTarget());
+    if (word) for (const sl of word.slots) if (sl) out.push({ cube: sl.cube, group: sl.cube.group, drag: sl.drag, slot: sl });
+    return out;
+  };
+
+  // The cube under the pointer. On the plain stage, anywhere counts as the main cube.
+  function pickTarget(clientX, clientY) {
     const rect = container.getBoundingClientRect();
-    ndc.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+    ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
     raycaster.setFromCamera(ndc, camera);
-    const targets = [holder, ...(word ? word.slots.filter(Boolean).map((s) => s.g) : [])];
-    const hit = raycaster.intersectObjects(targets, true)[0];
+    const list = allTargets().filter((t) => t.group.visible);
+    const hit = raycaster.intersectObjects(list.map((t) => t.group), true)[0];
     if (hit) {
       for (let o = hit.object; o; o = o.parent) {
-        if (o === holder) return mainDrag;
-        const slot = word?.slots.find((s) => s && s.g === o);
-        if (slot) return slot.drag;
+        const t = list.find((x) => x.group === o);
+        if (t) return t;
       }
     }
-    // Missed: on the plain stage, grabbing anywhere spins the main cube.
-    return word ? null : mainDrag;
+    return word || cube.group.parent !== holder ? null : mainTarget();
+  }
+
+  // ---------- Zoom out on a cube: its pieces spread apart, then it blows up ----------
+  function zoomSpread(t, amount) {
+    const c = t.cube;
+    if (c.exploding || !t.group.visible) return;
+    c.spread = Math.max(0, c.spread + amount);
+    c.spreadT = performance.now();
+    if (c.spread > EXPLODE_AT) shatter(t);
+  }
+
+  container.addEventListener('wheel', (e) => {
+    const t = pickTarget(e.clientX, e.clientY);
+    if (!t) return;
+    e.preventDefault(); // don't scroll or zoom the page
+    // Scrolling down / pinching in (zoom out) spreads; the other way pulls back.
+    zoomSpread(t, e.deltaY * (e.ctrlKey ? 0.012 : 0.0028));
+  }, { passive: false });
+
+  // Two-finger pinch on touch screens.
+  const touches = new Map();
+  let pinch = null;
+  container.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'touch') return;
+    touches.set(e.pointerId, [e.clientX, e.clientY]);
+    if (touches.size === 2) {
+      const [[ax, ay], [bx, by]] = [...touches.values()];
+      const t = pickTarget((ax + bx) / 2, (ay + by) / 2);
+      pinch = t ? { t, d: Math.hypot(ax - bx, ay - by) } : null;
+      endDrag();
+    }
+  });
+  container.addEventListener('pointermove', (e) => {
+    if (!touches.has(e.pointerId)) return;
+    touches.set(e.pointerId, [e.clientX, e.clientY]);
+    if (pinch && touches.size === 2) {
+      const [[ax, ay], [bx, by]] = [...touches.values()];
+      const d = Math.hypot(ax - bx, ay - by);
+      zoomSpread(pinch.t, (pinch.d - d) * 0.01); // fingers closing = zoom out = spread
+      pinch.d = d;
+    }
+  });
+  const liftTouch = (e) => {
+    touches.delete(e.pointerId);
+    if (touches.size < 2) pinch = null;
+  };
+  container.addEventListener('pointerup', liftTouch);
+  container.addEventListener('pointercancel', liftTouch);
+
+  // Blow a cube into its 26 cubies (handed to the physics), then drop a fresh
+  // copy of it back in from the top.
+  function shatter(t) {
+    const c = t.cube;
+    c.exploding = true;
+    const rect = container.getBoundingClientRect();
+    const pxPerUnit = rect.height / 2 / (camZ * TAN15);
+    const toScreen = (p) => [rect.left + ((p.x + 1) / 2) * rect.width, rect.top + ((1 - p.y) / 2) * rect.height];
+    t.group.updateMatrixWorld(true);
+    const [cx, cy] = toScreen(t.group.getWorldPosition(new THREE.Vector3()).project(camera));
+    const q = new THREE.Quaternion();
+    const sc = new THREE.Vector3();
+    const pieces = c.cubies.map((cb) => {
+      const [x, y] = toScreen(cb.getWorldPosition(new THREE.Vector3()).project(camera));
+      cb.getWorldScale(sc);
+      // BoxGeometry face order: +x, -x, +y, -y, +z, -z (in the cubie's own frame)
+      const faces = Array(6).fill('black');
+      for (const s of cb.children) {
+        const n = s.userData.normal;
+        if (!n) continue;
+        const i = n.x ? (n.x > 0 ? 0 : 1) : n.y ? (n.y > 0 ? 2 : 3) : (n.z > 0 ? 4 : 5);
+        faces[i] = s.userData.color;
+      }
+      return { x, y, dx: x - cx, dy: y - cy, size: 0.99 * sc.x * pxPerUnit, quat: cb.getWorldQuaternion(q).clone(), faces };
+    });
+    onShatter(pieces);
+
+    t.group.visible = false;
+    c.setSpread(0);
+    c.spread = 0;
+    setTimeout(async () => {
+      t.group.visible = true;
+      // Fall back in from the top (ease in), then a little bounce.
+      const set = t.slot ? (y) => { t.slot.y = y; } : (y) => { fx.mainY = y; };
+      await tween(900, (e) => set(16 * (1 - e)), easeInCubic);
+      await tween(380, (_, k) => set(Math.sin(k * Math.PI) * 0.5 * (1 - k)), (k) => k);
+      set(0);
+      c.exploding = false;
+    }, 2600);
   }
 
   container.addEventListener('pointerdown', (e) => {
-    dragging = pickDrag(e);
+    if (touches.size > 1) return;
+    dragging = pickTarget(e.clientX, e.clientY)?.drag ?? null;
     if (!dragging) return;
     px = e.clientX;
     py = e.clientY;
@@ -221,8 +321,25 @@ export function createStage(container, cube) {
     );
     holder.scale.setScalar(Math.max(fx.main, 0.0001));
     holder.visible = fx.main > 0.001;
-    cube.group.scale.setScalar(fx.scale);
     for (const m of Object.values(cube.materials)) m.emissiveIntensity = fx.glow;
+
+    // Exploded view: ease back together after zooming stops; tremble more and
+    // more as a cube gets close to blowing apart.
+    for (const tg of allTargets()) {
+      const c = tg.cube;
+      if (!c.exploding && c.spread > 0 && now - (c.spreadT || 0) > 900) {
+        c.spread *= Math.exp(-dt * 2.5);
+        if (c.spread < 0.002) c.spread = 0;
+      }
+      if (c.spread !== c.appliedSpread) {
+        c.setSpread(c.spread);
+        c.appliedSpread = c.spread;
+      }
+      const base = tg.slot && !tg.slot.main ? 1 : fx.scale;
+      tg.group.scale.setScalar(base * (1 + c.spread));
+      const k = Math.max(0, (c.spread - 0.8) / (EXPLODE_AT - 0.8));
+      tg.group.position.set(Math.sin(t * 71) * 0.12 * k, Math.sin(t * 89 + 1) * 0.12 * k, 0);
+    }
 
     if (word) {
       word.slots.forEach((sl, i) => {
@@ -232,7 +349,8 @@ export function createStage(container, cube) {
         const local = t - word.start - i * 0.15;
         const l = local > 0 ? local % 4.5 : 99;
         const spin = l < 1.2 ? easeInOutCubic(l / 1.2) * Math.PI * 2 : 0;
-        sl.g.rotation.set(SLOT_TILT[0] + sl.drag.x, SLOT_TILT[1] + sl.drag.y + spin, 0);
+        sl.g.rotation.set(SLOT_TILT[0] + sl.drag.x, SLOT_TILT[1] + sl.drag.y + spin + (sl.roll || 0), 0);
+        sl.g.scale.setScalar(1 + (sl.pop || 0));
       });
     }
 
@@ -266,8 +384,8 @@ export function createStage(container, cube) {
       const rect = container.getBoundingClientRect();
       const groups = [];
       if (holder.visible && cube.group.parent === holder) groups.push(cube.group);
-      if (word) for (const sl of word.slots) if (sl) groups.push(sl.g.children[0]);
-      return groups.map((g) => {
+      if (word) for (const sl of word.slots) if (sl) groups.push(sl.cube.group);
+      return groups.filter((g) => g.visible).map((g) => {
         const pts = [];
         for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) {
           v.set(sx, sy, sz).multiplyScalar(CUBE_HALF).applyMatrix4(g.matrixWorld).project(camera);
@@ -300,21 +418,30 @@ export function createStage(container, cube) {
       main.position.x = x1;
       main.add(cube.group);
       group.add(main);
-      word.slots[n - 1] = { g: main, y: 0, drag: mainDrag, main: true };
+      word.slots[n - 1] = { g: main, y: 0, drag: mainDrag, main: true, cube };
       mainDrag = makeDrag();
 
-      const drops = earlier.map((c, i) => {
+      // The earlier letters pop in from the left edge of the screen, nearest
+      // slot first so none of them has to pass through another.
+      const offLeft = -(targetZ() * TAN15 * aspect + 4);
+      const arrivals = earlier.map((c, i) => {
         castShadows(c.group);
         const g = new THREE.Group();
         g.add(c.group);
-        g.position.set(slotX(i, n), 18, 0);
+        g.position.set(offLeft, 0, 0);
         g.rotation.set(SLOT_TILT[0], SLOT_TILT[1], 0);
         group.add(g);
-        const sl = { g, y: 18, drag: makeDrag() };
+        const sl = { g, y: 0, drag: makeDrag(), cube: c, roll: 0 };
         word.slots[i] = sl;
-        return wait(i * 260).then(() => tween(950, (e) => { sl.y = 18 * (1 - e); }, easeOutBack));
+        const x = slotX(i, n);
+        const order = earlier.length - 1 - i;
+        return wait(order * 230).then(() => tween(1000, (e, k) => {
+          g.position.x = offLeft + (x - offLeft) * e;
+          sl.roll = (1 - e) * -Math.PI * 2; // spins as it slides in
+          sl.pop = Math.sin(Math.PI * k) * 0.18; // and swells a little mid-flight
+        }, easeOutBack)).then(() => { sl.roll = 0; sl.pop = 0; });
       });
-      await Promise.all(drops);
+      await Promise.all(arrivals);
       tween(800, (e) => { word.amp = e; });
       word.start = clock.elapsedTime + 0.8;
     },
