@@ -273,8 +273,11 @@ export function createPhysics({ back, front, obstacles = () => [], sound = {} })
         }
         const k = Math.min(1, (now - h.t0) / h.dur);
         const e = easeInOutCubic(k);
-        p.x = h.sx + (h.x - h.sx) * e;
-        p.y = h.sy + (h.y - h.sy) * e - Math.sin(Math.PI * e) * h.lift;
+        // Targets can move (functions), e.g. the mouse pointer.
+        const tx = typeof h.x === 'function' ? h.x() : h.x;
+        const ty = typeof h.y === 'function' ? h.y() : h.y;
+        p.x = h.sx + (tx - h.sx) * e;
+        p.y = h.sy + (ty - h.sy) * e - Math.sin(Math.PI * e) * h.lift;
         p.size = h.ss + (h.size - h.ss) * e;
         p.r = p.size * 0.5;
         if (k >= 1) {

@@ -9,6 +9,7 @@ import { buildTitle } from './title.js';
 import { createPhysics } from './physics3d.js';
 import { sfx, isMuted, setMuted, audioRunning, waitForAudio } from './audio.js';
 import { createBackdrop } from './backdrop.js';
+import { installCursor, canHover } from './cursor.js';
 
 const MAX_LEN = 12;
 const FACES = 'URFDLB';
@@ -21,6 +22,7 @@ const sleep = async (ms, alive = () => true) => {
   while (performance.now() < end && alive()) await new Promise((r) => setTimeout(r, 40));
 };
 
+const cursor = installCursor();
 RubiksCube.onTurn = (duration) => sfx.turn(duration);
 const cube = new RubiksCube();
 const stage = createStage($('cube'), cube, {
@@ -494,8 +496,10 @@ const shuffled = (a) => {
   return b;
 };
 
+let cursorPending = false; // a piece is flying to the pointer to become the cursor
 function finishOpening(instant = false) {
   document.body.classList.remove('opening');
+  if (!cursorPending) cursor.show();
   for (const el of document.querySelectorAll('.pending')) el.classList.remove('pending');
   stage.fx.main = 1;
   if (mode === 'opening') mode = 'landing';
@@ -511,13 +515,23 @@ function deliverPieces(pieces, uiEls) {
   const order = shuffled(pieces);
   const stageRect = $('cube').getBoundingClientRect();
   const targets = [{ main: true }, ...uiEls.map((el) => ({ el }))];
+  // On mouse devices, one more piece flies to the pointer and becomes the cursor.
+  if (canHover && cursor.mouse.known) {
+    targets.push({ cursor: true });
+    cursorPending = true;
+  }
   let left = targets.length;
   const arrived = () => { if (--left === 0) finishOpening(); };
 
   targets.forEach((t, i) => {
     const p = order[i];
     let x, y, size;
-    if (t.main) {
+    if (t.cursor) {
+      // Follow the pointer while flying (it can move); aim at the arrow's middle.
+      x = () => cursor.mouse.x + 9;
+      y = () => cursor.mouse.y + 14;
+      size = 22;
+    } else if (t.main) {
       x = stageRect.left + stageRect.width / 2;
       y = stageRect.top + stageRect.height / 2;
       size = 70;
@@ -531,7 +545,11 @@ function deliverPieces(pieces, uiEls) {
     physics.sendTo(p, {
       x, y, size, delay: 650 + i * 150, dur: 1700, fade: 900, lift: 180,
       onArrive: () => {
-        if (t.main) {
+        if (t.cursor) {
+          cursor.reveal();
+          cursorPending = false;
+          sfx.pop();
+        } else if (t.main) {
           // The main cube grows slowly out of its piece.
           tween(1400, (e) => { stage.fx.main = e; }, easeOutBack);
           sfx.thud();
@@ -552,6 +570,7 @@ async function runOpening() {
   if (REDUCED) return finishOpening(true);
   stage.fx.main = 0;
   document.body.classList.add('opening');
+  if (canHover) cursor.hide(); // it gets delivered by a piece of the explosion
   for (const el of uiEls) el.classList.add('pending');
 
   // Start with the title big and centered on the page.
