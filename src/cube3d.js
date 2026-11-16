@@ -159,10 +159,24 @@ export class RubiksCube {
   turn(move, duration = 0, ease = easeInOutCubic, record = true) {
     const run = async () => {
       await this._turn(move, duration, ease);
-      if (record && !'xyz'.includes(move[0])) this.history.push(move);
+      if (record && !'xyz'.includes(move[0])) this._record(move);
     };
     this.queue = this.queue.then(run, run);
     return this.queue;
+  }
+
+  // Push to history, merging with the previous move on the same face
+  // (R + R = R2, R + R' = nothing) so solving back takes fewer turns.
+  _record(move) {
+    const q = (m) => (m.endsWith('2') ? 2 : m.endsWith("'") ? 3 : 1);
+    const last = this.history[this.history.length - 1];
+    if (last && last[0] === move[0]) {
+      this.history.pop();
+      const t = (q(last) + q(move)) % 4;
+      if (t) this.history.push(move[0] + ['', '', '2', "'"][t]);
+    } else {
+      this.history.push(move);
+    }
   }
 
   _turn(move, duration, ease) {
