@@ -1,16 +1,20 @@
-// The NUKE easter egg (type NUKE and submit).
+// The NUKE easter egg (type NUKE and submit; the word box locks).
 //
 //  0.0s  a little launcher rises out of the floor
 //  1.2s  a missile launches out of it and arcs up
 //  3.0s  it turns toward you...
-//  3.6s  ...and flies at the screen, growing until it fills it (10s total),
-//        while everything turns red, an alarm wails and the page shakes
-// 10.0s  impact: white flash, red theme, every cube explodes, the UI falls
-//        apart, a mushroom cloud rises. Then "press any key to rebuild".
+//  3.6s  ...and dives at the leftmost RUBISH cube (10s total) while everything
+//        turns red, an alarm wails and the page shakes
+// 10.0s  impact: flash, red world, every cube explodes, the UI falls apart and
+//        an animated mushroom cloud rises behind it all. "NUKE" lifts out of
+//        the word box to the middle of the screen, gains a D, and the letters
+//        flip into cubes. Then "press any key to rebuild".
 import { PALETTE } from './cube3d.js';
+import { buildCube } from './title.js';
 
 const TOTAL = 10000;
 const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+const easeOut = (t) => 1 - Math.pow(1 - t, 3);
 const clamp01 = (t) => Math.min(1, Math.max(0, t));
 const lerp = (a, b, t) => a + (b - a) * t;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -86,12 +90,10 @@ function headOn() {
   return spriteFromFn(N, N, (x, y) => {
     const dx = x - C, dy = y - C;
     const r = Math.hypot(dx, dy);
-    // Fins (behind the nose cone)
     const fin = (Math.abs(dx) <= 1 && Math.abs(dy) <= 20) || (Math.abs(dy) <= 1 && Math.abs(dx) <= 20);
     if (r > R + 1.5) return fin && r <= 20 ? (r > 19 ? '#111' : '#6b7a63') : null;
     if (r > R) return '#111';
     if (r > R - 2) return PALETTE.red;
-    // Radiation trefoil on yellow
     if (r < 2.5) return '#111';
     if (r < 3.6) return PALETTE.yellow;
     const a = ((Math.atan2(dy, dx) * 180) / Math.PI + 360 + 90) % 120;
@@ -100,31 +102,45 @@ function headOn() {
   });
 }
 
-// Pixel mushroom cloud.
-function mushroom() {
-  const W = 56, H = 56;
-  const hash = (x, y) => { const s = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453; return s - Math.floor(s); };
-  const shade = (k, x, y) => {
-    const n = k + (hash(x, y) - 0.5) * 0.25;
-    if (n > 0.8) return '#fff6c8';
-    if (n > 0.62) return PALETTE.yellow;
-    if (n > 0.42) return PALETTE.orange;
-    if (n > 0.22) return PALETTE.red;
-    return '#5b1111';
+// ---------- Animated pixel mushroom cloud ----------
+// Smooth value noise for the billowing.
+const h2 = (x, y) => { const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return s - Math.floor(s); };
+function noise(x, y) {
+  const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
+  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+  return lerp(lerp(h2(xi, yi), h2(xi + 1, yi), u), lerp(h2(xi, yi + 1), h2(xi + 1, yi + 1), u), v);
+}
+const CLOUD_RAMP = [[0.82, [255, 246, 200]], [0.64, [255, 213, 0]], [0.46, [255, 88, 0]], [0.28, [196, 30, 58]], [0.14, [110, 22, 22]], [-1, [70, 52, 52]]];
+
+function cloudPainter(canvas) {
+  const N = canvas.width;
+  const g = canvas.getContext('2d');
+  const img = g.createImageData(N, N);
+  return (T) => {
+    const grow = easeOut(clamp01(T / 3.8));
+    const cool = clamp01(T / 14) * 0.45; // it slowly cools from white-hot to red and smoke
+    const cx = N / 2, ground = N - 4;
+    const capY = lerp(ground - 8, 15, grow), capRx = 5 + 22 * grow, capRy = 3 + 10 * grow;
+    const ringRx = 7 + 23 * grow;
+    const d = img.data;
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      const churn = noise(x * 0.16 + T * 0.35, y * 0.16 - T * 1.3); // rolling upward
+      const wobble = (noise(x * 0.11 - T * 0.5, y * 0.11 + T * 0.2) - 0.5) * 0.5;
+      let k = -9;
+      const cap = Math.hypot((x - cx) / capRx, (y - capY) / capRy) + wobble;
+      if (cap < 1) k = Math.max(k, 1.05 - cap * 0.85 - (y - capY + capRy) / (N * 1.4));
+      const stemHalf = (2.5 + 2.5 * grow) * (1 + Math.max(0, (y - ground + 12) / 9)) + wobble * 3;
+      if (y > capY && y < ground && Math.abs(x - cx) < stemHalf) k = Math.max(k, 0.7 - Math.abs(x - cx) / 10 - (y - capY) / (N * 1.6));
+      const ring = Math.hypot((x - cx) / ringRx, (y - ground) / 4.5) + wobble * 0.6;
+      if (ring < 1) k = Math.max(k, 0.55 - ring * 0.45);
+      const i = (y * N + x) * 4;
+      if (k < -1) { d[i + 3] = 0; continue; }
+      const heat = k + (churn - 0.5) * 0.35 - cool;
+      const col = CLOUD_RAMP.find(([t]) => heat > t)[1];
+      d[i] = col[0]; d[i + 1] = col[1]; d[i + 2] = col[2]; d[i + 3] = 255;
+    }
+    g.putImageData(img, 0, 0);
   };
-  return spriteFromFn(W, H, (x, y) => {
-    // Cap
-    const cx = 28, cy = 16;
-    const capD = Math.hypot((x - cx) / 25, (y - cy) / 13);
-    if (capD < 1 && y < 27) return shade(1 - capD * 0.9 - (y - 4) / 60, x, y);
-    // Stem
-    const stemHalf = 4 + Math.max(0, (y - 40) * 0.35);
-    if (y >= 24 && y < 50 && Math.abs(x - cx) < stemHalf) return shade(0.55 - Math.abs(x - cx) / 14 - (y - 24) / 90, x, y);
-    // Ground ring
-    const baseD = Math.hypot((x - cx) / 26, (y - 50) / 5.5);
-    if (baseD < 1) return shade(0.45 - baseD * 0.4, x, y);
-    return null;
-  });
 }
 
 function el(cls, parent, tag = 'div') {
@@ -143,7 +159,8 @@ function imgEl(cls, parent, sprite, scale) {
 }
 
 // stage, physics, title: the app's parts. uiEls: things that fall off on impact.
-export async function runNuke({ stage, physics, title, uiEls, sound = {}, onImpact = () => {}, canHover = true }) {
+// input: the (locked) word box holding "NUKE". data: letter glyphs for the cubes.
+export async function runNuke({ stage, physics, title, uiEls, input, data, sound = {}, onImpact = () => {}, canHover = true }) {
   const W = innerWidth, H = innerHeight;
   const layer = el('nuke-layer', document.body);
   const tint = el('nuke-tint', layer);
@@ -161,9 +178,15 @@ export async function runNuke({ stage, physics, title, uiEls, sound = {}, onImpa
   const MS = 3;
   const missile = imgEl('nuke-sprite', layer, missileFrames[0], MS);
   missile.style.opacity = '0';
-  const front = headOn();
-  const nose = imgEl('nuke-sprite', layer, front, 1);
+  const nose = imgEl('nuke-sprite', layer, headOn(), 1);
   nose.style.opacity = '0';
+
+  // The target: the leftmost RUBISH cube.
+  const targetCube = document.querySelector('.title .mini:not(.gone)');
+  const tr = targetCube ? targetCube.getBoundingClientRect() : { left: W * 0.3, top: H * 0.1, width: 50, height: 50 };
+  const tx = tr.left + tr.width / 2, ty = tr.top + tr.height / 2;
+  const hitSize = Math.max(tr.width, 40) * 2.6;
+  const startX = W * 0.55, startY = H * 0.3; // where the arc ends and the dive begins
 
   const panelish = [document.querySelector('.title'), document.querySelector('.panel')];
   const place = (node, x, y, w, h, rot = 0) => {
@@ -196,11 +219,8 @@ export async function runNuke({ stage, physics, title, uiEls, sound = {}, onImpa
       if (ms >= 1200 && ms < 3600) {
         const k = clamp01((ms - 1200) / 1800);
         const e = easeInOut(k);
-        const sx = lx, sy = ly - 10;
-        const ex = W * 0.42, ey = H * 0.24;
-        const x = lerp(sx, ex, e), y = lerp(sy, ey, e) - Math.sin(Math.PI * e) * H * 0.12;
-        const frameIdx = Math.floor(ms / 80) % 2;
-        missile.src = missileFrames[frameIdx].url;
+        const x = lerp(lx, startX, e), y = lerp(ly - 10, startY, e) - Math.sin(Math.PI * e) * H * 0.12;
+        missile.src = missileFrames[Math.floor(ms / 80) % 2].url;
         missile.style.opacity = '1';
         // Turn toward the viewer: squash sideways, then swap to the head-on view.
         const turn = clamp01((ms - 3000) / 600);
@@ -212,14 +232,15 @@ export async function runNuke({ stage, physics, title, uiEls, sound = {}, onImpa
         }
       }
 
-      // Head-on: rush at the screen, growing faster and faster.
+      // Head-on: dive at the leftmost cube, growing as it closes in.
       if (ms >= 3600) {
         missile.style.opacity = '0';
         nose.style.opacity = '1';
         const p = clamp01((ms - 3600) / (TOTAL - 3600));
-        const size = 24 * Math.exp(Math.log((Math.max(W, H) * 2.4) / 24) * Math.pow(p, 1.7));
-        const x = lerp(W * 0.42, W / 2, easeInOut(p)) + Math.sin(t * 9) * 6 * p;
-        const y = lerp(H * 0.24, H / 2, easeInOut(p)) + Math.cos(t * 7) * 6 * p;
+        const e = Math.pow(p, 1.8); // slow at first, then rushing in
+        const size = 24 * Math.exp(Math.log(hitSize / 24) * e);
+        const x = lerp(startX, tx, e) + Math.sin(t * 9) * 5 * p;
+        const y = lerp(startY, ty, e) + Math.cos(t * 7) * 5 * p;
         place(nose, x, y, size, size, Math.sin(t * 5) * 6 * p);
 
         // Everything goes red, the alarm pulses, the page shakes.
@@ -245,6 +266,9 @@ export async function runNuke({ stage, physics, title, uiEls, sound = {}, onImpa
   const flash = el('nuke-flash', layer);
   flash.style.opacity = '1';
   requestAnimationFrame(() => { flash.style.transition = 'opacity 1.6s ease-out'; flash.style.opacity = '0'; });
+  const burst = el('nuke-burst', layer);
+  burst.style.left = `${tx}px`;
+  burst.style.top = `${ty}px`;
   nose.remove();
   missile.remove();
   launcher.remove();
@@ -252,8 +276,14 @@ export async function runNuke({ stage, physics, title, uiEls, sound = {}, onImpa
   stage.fx.shake = 1;
   document.body.classList.add('nuked');
   tint.style.transition = 'opacity 1s ease';
-  tint.style.opacity = '0.9';
+  tint.style.opacity = '0.5'; // still red, but lets the fire colors show
   vignette.style.opacity = '0.85';
+
+  // The word lifts out of the box before the box falls away.
+  const box = input.getBoundingClientRect();
+  const boxFont = parseFloat(getComputedStyle(input).fontSize) || 18;
+  input.value = '';
+  input.placeholder = ''; // the box falls away empty
 
   // Every cube blows up; debris rains down.
   stage.shatterAll();
@@ -271,26 +301,56 @@ export async function runNuke({ stage, physics, title, uiEls, sound = {}, onImpa
     node.classList.add('fall');
   }
 
-  // Mushroom cloud rises from the ground.
-  const cloud = imgEl('nuke-cloud', layer, mushroom(), 1);
-  const cw = Math.min(W * 0.9, H * 1.1);
-  cloud.style.width = `${cw}px`;
-  cloud.style.height = `${cw}px`;
-  cloud.style.left = `${W / 2 - cw / 2}px`;
-  cloud.style.top = `${floorTop - cw * 0.92}px`;
-  requestAnimationFrame(() => cloud.classList.add('rise'));
+  // Animated mushroom cloud, rising behind everything from under the impact.
+  const back = el('nuke-back', document.body);
+  const cloudCanvas = el('nuke-cloud', back, 'canvas');
+  cloudCanvas.width = cloudCanvas.height = 64;
+  const cw = Math.min(W * 0.85, H * 1.05);
+  const cx = Math.min(Math.max(tx, cw / 2), W - cw / 2);
+  Object.assign(cloudCanvas.style, { width: `${cw}px`, height: `${cw}px`, left: `${cx - cw / 2}px`, top: `${floorTop - cw * 0.97}px` });
+  const paint = cloudPainter(cloudCanvas);
+  const cloudStart = performance.now();
+  const animateCloud = (now) => {
+    paint((now - cloudStart) / 1000);
+    if (back.isConnected) requestAnimationFrame(animateCloud);
+  };
+  requestAnimationFrame(animateCloud);
 
-  await sleep(1600);
-  stage.fx.shake = 0.35;
+  // "NUKE" floats out of the word box to the middle of the screen as plain text.
+  const looks = [['N', 'white', 'red'], ['U', 'white', 'orange'], ['K', 'white', 'yellow'], ['E', 'white', 'red'], ['D', 'white', 'orange']];
+  const word = el('title intro nuke-word', layer);
+  const cubes = looks.map((look, i) => buildCube(data, look, i).mini);
+  for (const c of cubes.slice(0, 4)) { c.classList.add('letter-in'); word.appendChild(c); }
+  const m = cubes[0].offsetWidth;
+  const s0 = boxFont / (m * 0.9);
+  const centerY = H * 0.44;
+  const startT = `translate(-50%, -50%) translate(${box.left + box.width / 2 - W / 2}px, ${box.top + box.height / 2 - centerY}px) scale(${s0})`;
+  word.style.top = `${centerY}px`;
+  word.style.transform = startT;
+  await sleep(700);
   for (const n of panelish) if (n) n.classList.remove('quake');
+  stage.fx.shake = 0.35;
+  word.style.transition = 'transform 1.7s cubic-bezier(0.65, 0, 0.35, 1)';
+  word.style.transform = 'translate(-50%, -50%) scale(1)';
+  sound.whoosh?.();
   await sleep(1900);
   stage.fx.shake = 0;
 
+  // ...gains a D...
+  word.appendChild(cubes[4]);
+  void cubes[4].offsetWidth;
+  cubes[4].classList.add('letter-in');
+  sound.blip?.(5);
+  await sleep(1100);
+
+  // ...and the letters flip into cubes, like the opening.
+  cubes.forEach((c, i) => setTimeout(() => { c.classList.add('cube-in'); sound.tick?.(0.2); }, i * 140));
+  await sleep(cubes.length * 140 + 900);
+
   // ---------- Aftermath ----------
-  const end = el('nuke-end', layer);
-  end.innerHTML = `<p class="nuke-title">NUKED</p><p class="nuke-sub">${canHover ? 'PRESS ANY KEY TO REBUILD' : 'TAP TO REBUILD'}</p>`;
-  requestAnimationFrame(() => end.classList.add('show'));
-  await sleep(600);
+  const prompt = el('nuke-sub', layer, 'p');
+  prompt.textContent = canHover ? 'PRESS ANY KEY TO REBUILD' : 'TAP TO REBUILD';
+  await sleep(400);
   await new Promise((resolve) => {
     const go = () => resolve();
     window.addEventListener('keydown', go, { once: true });
