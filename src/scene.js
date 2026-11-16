@@ -212,12 +212,25 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
     if (c.spread > EXPLODE_AT) shatter(t);
   }
 
+  // One zoom gesture sticks to the cube it started on, so sliding off it (or
+  // into the gap between word cubes) mid-gesture doesn't lose the progress.
+  let wheelTarget = null, wheelT = 0;
   container.addEventListener('wheel', (e) => {
     e.preventDefault(); // never scroll or zoom the page from over the cubes
-    const t = pickTarget(e.clientX, e.clientY);
+    const now = performance.now();
+    const keep = wheelTarget && now - wheelT < 450 && !wheelTarget.cube.exploding && wheelTarget.group.visible;
+    const t = keep ? wheelTarget : pickTarget(e.clientX, e.clientY);
     if (!t) return;
+    wheelTarget = t;
+    wheelT = now;
+    // Wheel deltas come in pixels, lines or pages depending on the browser and
+    // device; turn them all into pixels so every mouse and trackpad feels the same.
+    const px = e.deltaY * (e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? window.innerHeight : 1);
     // Zooming in (scroll up / pinch apart) spreads; the other way pulls back.
-    zoomSpread(t, -e.deltaY * (e.ctrlKey ? 0.019 : 0.0042));
+    // Capped per event so one big jump can't overshoot, but always enough that
+    // a few quick notches blow it up.
+    const amount = clamp(-px * (e.ctrlKey ? 0.019 : 0.0042), -0.6, 0.6);
+    zoomSpread(t, amount);
   }, { passive: false });
 
   // Two-finger pinch on touch screens.
@@ -368,9 +381,12 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
     // more as a cube gets close to blowing apart.
     for (const tg of allTargets()) {
       const c = tg.cube;
-      // Let go without blowing it up and it snaps straight back together.
-      if (!c.exploding && c.spread > 0 && now - (c.spreadT || 0) > 160) {
-        c.spread *= Math.exp(-dt * 14);
+      // Let go without blowing it up and it eases back together. The pause
+      // before it does covers the gaps between wheel notches, and fingers held
+      // still mid-pinch keep it open.
+      const pinching = pinch && pinch.t.cube === c;
+      if (!c.exploding && !pinching && c.spread > 0 && now - (c.spreadT || 0) > 380) {
+        c.spread *= Math.exp(-dt * 7);
         if (c.spread < 0.002) c.spread = 0;
       }
       if (c.spread !== c.appliedSpread) {
