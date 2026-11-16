@@ -20,8 +20,26 @@ const sleep = async (ms, alive = () => true) => {
 };
 
 const cube = new RubiksCube();
-const stage = createStage($('cube'), cube);
-const physics = createPhysics({ back: $('physics-back'), front: $('physics-front'), obstacles: stage.obstacles });
+const stage = createStage($('cube'), cube, {
+  onShatter: (pieces) => {
+    physics.shatter(pieces);
+    const cx = pieces.reduce((a, p) => a + p.x, 0) / pieces.length;
+    const cy = pieces.reduce((a, p) => a + p.y, 0) / pieces.length;
+    boom(cx, cy);
+  },
+});
+
+// Things confetti can land on: the 3D cubes, plus the SPACE button while it's up.
+function obstacles() {
+  const list = stage.obstacles();
+  const steps = $('steps');
+  if (!steps.hidden && steps.classList.contains('show')) {
+    const r = $('next').getBoundingClientRect();
+    list.push([[r.left, r.top], [r.right, r.top], [r.right, r.bottom], [r.left, r.bottom]]);
+  }
+  return list;
+}
+const physics = createPhysics({ back: $('physics-back'), front: $('physics-front'), obstacles });
 buildTitle($('title'), data, {
   onExplode: (x, y, size, rx, ry) => {
     physics.explode(x, y, size, rx, ry);
@@ -318,8 +336,7 @@ async function back() {
 // ---------- Celebration, then the next letter (or the finale) ----------
 async function celebrate() {
   mode = 'celebrate';
-  nextBtn.disabled = true;
-  show(steps, false);
+  nextBtn.disabled = true; // stays on screen (greyed out) so confetti can land on it
   // The last letter saves its confetti for the start page with the word on it.
   const last = word.idx === word.chars.length - 1;
   if (!REDUCED && !last) physics.confetti(110);
@@ -334,6 +351,7 @@ async function celebrate() {
 // in beside it, and the page turns back into the landing page showing the word.
 async function finale() {
   mode = 'finale';
+  show(steps, false);
   document.body.classList.add('finale');
   const earlier = [];
   for (const ch of word.chars.slice(0, -1)) {
