@@ -670,3 +670,39 @@ html:has(body.nuked), body.nuked { overflow: hidden; } /* falling UI must not ad
 /* NUKED: the D's slot opens smoothly so NUKE slides over */
 .nuke-word .mini { transition: width 2s var(--smooth), margin-right 2s var(--smooth); }
 .nuke-word .mini.squeezed { width: 0; margin-right: calc(var(--m) * -0.4); }
+
+/* Robot arm (typed MUTE / UNMUTE) and the burst around the sound button */
+.arm-3d { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 125; pointer-events: none; }
+.corner-btn.zap { animation: zap-press 0.55s var(--spring); }
+@keyframes zap-press {
+  0% { transform: translate(4px, 4px); box-shadow: 0 0 0 var(--ink); }
+  45% { transform: scale(1.3) rotate(-6deg); }
+  100% { transform: none; }
+}
+.zap-ring {
+  position: fixed;
+  z-index: 59;
+  pointer-events: none;
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 3px var(--ink);
+  animation: zap-ring 0.85s ease-out both;
+}
+@keyframes zap-ring {
+  from { transform: scale(0.7); opacity: 1; }
+  to { transform: scale(2.8) rotate(45deg); opacity: 0; }
+}
+.zap-label {
+  position: fixed;
+  z-index: 61;
+  pointer-events: none;
+  white-space: nowrap;
+  font: 10px var(--font);
+  color: #fff;
+  text-shadow: 2px 2px 0 var(--ink);
+  animation: zap-label 1.5s ease-out forwards;
+}
+@keyframes zap-label {
+  0% { transform: translate(-50%, 0) scale(0.5); opacity: 0; }
+  20% { transform: translate(-50%, 6px) scale(1.15); opacity: 1; }
+  100% { transform: translate(-50%, 26px); opacity: 0; }
+}

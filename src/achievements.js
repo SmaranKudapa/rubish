@@ -44,6 +44,17 @@ function trefoil() {
 
 const ICONS = {
   nuke: trefoil(),
+  muted: [
+    '....k.......',
+    '...kk.......',
+    'kkkwk.k...k.',
+    'kwwwk..k.k..',
+    'kwwwk...k...',
+    'kwwwk..k.k..',
+    'kkkwk.k...k.',
+    '...kk.......',
+    '....k.......',
+  ],
   dizzy: [
     'kkkkkkkkkkkk',
     'kwwwwwwwwwwk',
@@ -130,6 +141,7 @@ export const ACHIEVEMENTS = [
   { id: 'copycat', icon: 'twins', title: 'CLONE', desc: 'Click a flying cube to clone it.', secret: true },
   { id: 'nuke', icon: 'nuke', title: 'NUKE', desc: 'Send in a nuke by typing nuke.', secret: true },
   { id: 'non-cuber', icon: 'dizzy', title: 'NON CUBER', desc: 'ZOOM BOOM a cube 5 times in a row while learning a letter.', secret: true },
+  { id: 'silencer', icon: 'muted', title: 'SILENCER', desc: 'Type MUTE to mute audio instead of clicking the button.', secret: true },
   { id: 'birthday', icon: 'cake', title: 'HAPPY BIRTHDAY', desc: 'Play Happy Birthday on the color squares.', secret: true },
 ];
 

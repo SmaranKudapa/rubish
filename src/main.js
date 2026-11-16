@@ -12,6 +12,7 @@ import { createBackdrop } from './backdrop.js';
 import { installCursor, canHover } from './cursor.js';
 import { createAchievements, iconURL } from './achievements.js';
 import { runNuke } from './nuke.js';
+import { robotArm, zapButton } from './arm.js';
 
 const MAX_LEN = 12;
 const FACES = 'URFDLB';
@@ -271,6 +272,7 @@ async function start(auto = false) {
   if (!text) return shake();
   if (mode !== 'landing' && mode !== 'done') return;
   if (text === 'NUKE') return launchNuke(); // easter egg
+  if (text === 'MUTE' || text === 'UNMUTE') return armSound(text === 'MUTE');
   mode = 'intro';
   loopToken++;
   input.blur();
@@ -289,6 +291,35 @@ async function start(auto = false) {
   }
   stage.setSway(0.35);
   beginLetter();
+}
+
+// ---------- MUTE / UNMUTE typed in: a robot arm presses the sound button ----------
+let arming = false;
+async function armSound(mute) {
+  if (arming) return;
+  arming = true;
+  input.value = '';
+  const btn = $('mute');
+  const press = () => {
+    setMuted(mute);
+    showMute();
+    zapButton(btn, mute ? 'MUTED' : 'SOUND ON');
+    if (mute) ach.unlock('silencer');
+  };
+  // The arm grows out of the rightmost title cube (if it's still there).
+  const cubes = [...document.querySelectorAll('.title .mini:not(.gone)')];
+  const from = cubes[cubes.length - 1];
+  if (from && !REDUCED) {
+    const a = from.getBoundingClientRect(), b = btn.getBoundingClientRect();
+    await robotArm({
+      from: { x: a.right - a.width * 0.2, y: a.top + a.height / 2 },
+      to: { x: b.left + b.width / 2, y: b.top + b.height / 2 },
+      color: 'red', physics, sound: sfx, onPress: press,
+    });
+  } else {
+    press();
+  }
+  arming = false;
 }
 
 // ---------- NUKE (type NUKE and submit) ----------
