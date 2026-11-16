@@ -145,7 +145,7 @@ export function robotArm({ stage, cube, to, physics, sound = {}, onPress = () =>
     const growAt = 180, pokeAt = growAt + GROW + HOLD, blowAt = pokeAt + POKE + AFTER;
     let pressed = false, ticks = 0, last = null;
     const prevZ = canvas.style.zIndex;
-    canvas.style.zIndex = '65'; // draw over the corner buttons while it reaches them
+    canvas.style.zIndex = '1000'; // the arm draws over all of the UI (buttons, achievement toast) while it's out
     stage.fx.armHold = true; // no spin ripples on the word while it's attached
     const t0 = performance.now();
     const m4 = new THREE.Matrix4();
