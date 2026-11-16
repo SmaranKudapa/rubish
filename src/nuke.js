@@ -486,6 +486,27 @@ export async function runNuke({ stage, physics, title, uiEls, input, target, dat
     });
   }, 1500);
 
+  // Near misses: other bits of debris come at the screen too, ballooning as
+  // they close in, but each zooms past the camera and off an edge instead of
+  // hitting the glass (only the one above does that).
+  for (let i = 0; i < 7; i++) {
+    setTimeout(() => {
+      const p = physics.pickPiece();
+      if (!p) return;
+      physics.colorAll(p);
+      // Off past an edge, mostly the top and sides (as if flying past your head).
+      const a = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.5;
+      const tx = W / 2 + Math.cos(a) * W * 0.8, ty = H / 2 + Math.sin(a) * H * 0.85;
+      physics.sendTo(p, {
+        x: tx, y: ty, size: Math.min(W, H) * (0.28 + Math.random() * 0.2),
+        dur: 2000 + Math.random() * 1600, lift: 0, fade: 200,
+        ease: (t) => t * t * (3 - 2 * t) * 0.35 + t * t * 0.65, // drifts, then rushes past
+        sizeEase: (t) => t * t, // grows quadratically as it gets close
+        onArrive: () => sound.whoosh?.(),
+      });
+    }, 900 + i * 650 + Math.random() * 400);
+  }
+
   // Bits of the UI shake loose and fall, at random.
   for (const n of panelish) if (n) { n.style.transform = ''; n.classList.add('quake'); }
   for (const node of uiEls) {
