@@ -116,6 +116,27 @@ function roundedRect(size, r) {
   return new THREE.ShapeGeometry(shape, 6);
 }
 
+// Swipe trail shader: only the part of the arc the turn has swept so far is
+// drawn, brightest at the leading edge and soft at the band's edges.
+const TRAIL_VS = /* glsl */ `
+  varying vec2 vUv;
+  void main() {
+    vUv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }`;
+const TRAIL_FS = /* glsl */ `
+  uniform float uProgress;
+  uniform float uFade;
+  uniform float uDir;
+  varying vec2 vUv;
+  void main() {
+    float u = uDir > 0.0 ? vUv.x : 1.0 - vUv.x; // 0 where the turn started
+    if (u > uProgress) discard;
+    float s = u / max(uProgress, 0.001);         // 0 at the tail, 1 at the head
+    float band = smoothstep(0.0, 0.3, vUv.y) * smoothstep(1.0, 0.7, vUv.y);
+    gl_FragColor = vec4(1.0, 1.0, 1.0, pow(s, 1.8) * band * uFade * 0.6);
+  }`;
+
 const tmpM = new THREE.Matrix4();
 function snap(c, scale = 1) {
   c.position.set(Math.round(c.position.x / SP) * SP, Math.round(c.position.y / SP) * SP, Math.round(c.position.z / SP) * SP);
@@ -217,16 +238,60 @@ export class RubiksCube {
       finish();
       return Promise.resolve();
     }
+    const trail = this._trail(axis, layer, angle);
     return new Promise((resolve) => {
       const t0 = performance.now();
       const step = (now) => {
         const t = Math.min(1, (now - t0) / duration);
-        pivot.rotation[axis] = angle * ease(t);
+        const e = ease(t);
+        pivot.rotation[axis] = angle * e;
+        trail.progress(e);
         if (t < 1) requestAnimationFrame(step);
-        else { finish(); resolve(); }
+        else { finish(); trail.fade(); resolve(); }
       };
       requestAnimationFrame(step);
     });
+  }
+
+  // A white swoosh that wraps around the turning layer on the side facing the
+  // viewer, sweeping along with the turn and fading out after it.
+  _trail(axis, layer, angle) {
+    const len = Math.abs(angle);
+    const dir = new THREE.Vector3(axis === 'x' ? 1 : 0, axis === 'y' ? 1 : 0, axis === 'z' ? 1 : 0);
+    const orient = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+    // Center the arc on the visible side: toward the front-top-right corner,
+    // flattened onto the plane of the turn.
+    const toward = new THREE.Vector3(1, 1, 1);
+    toward.addScaledVector(dir, -toward.dot(dir)).applyQuaternion(orient.clone().invert());
+    const center = Math.atan2(toward.x, toward.z);
+    const whole = layer === null;
+    const geo = new THREE.CylinderGeometry(2.3, 2.3, whole ? 3.2 : 0.95, 48, 1, true, center - len / 2, len);
+    const mat = new THREE.ShaderMaterial({
+      uniforms: { uProgress: { value: 0 }, uFade: { value: 1 }, uDir: { value: Math.sign(angle) } },
+      vertexShader: TRAIL_VS,
+      fragmentShader: TRAIL_FS,
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.quaternion.copy(orient);
+    if (!whole) mesh.position.copy(dir).multiplyScalar(layer * SP);
+    mesh.renderOrder = 2;
+    this.group.add(mesh);
+    return {
+      progress: (e) => { mat.uniforms.uProgress.value = Math.min(1, Math.max(0, e)); },
+      fade: () => {
+        const t0 = performance.now();
+        const f = (now) => {
+          const k = Math.min(1, (now - t0) / 280);
+          mat.uniforms.uFade.value = 1 - k;
+          if (k < 1) requestAnimationFrame(f);
+          else { this.group.remove(mesh); geo.dispose(); mat.dispose(); }
+        };
+        requestAnimationFrame(f);
+      },
+    };
   }
 
   // Undo every recorded move, returning to the solved state.
