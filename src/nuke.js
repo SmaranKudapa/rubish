@@ -8,7 +8,7 @@
 //        shakes harder as it gets close.
 // ~22s   the moment the nose touches the button: flash, full red world, every
 //        cube explodes, the UI falls apart and a slow, animated mushroom cloud
-//        rises behind it all. "NUKE" sits in the word box 2s more, then lifts
+//        rises behind it all. "NUKE" sits in the word box 3s more, then lifts
 //        out to the middle of the screen, gains a D (the debris stuck in the
 //        cracked glass spirals in and morphs into it), and the letters flip
 //        into cubes. Then "press any key".
@@ -106,57 +106,109 @@ function buildMissile() {
   return { root, spin, flame };
 }
 
-// ---------- The flight path: loops around the screen, travelled at constant speed ----------
-function cubic(p0, p1, p2, p3, t) {
-  const u = 1 - t;
-  return [
-    u * u * u * p0[0] + 3 * u * u * t * p1[0] + 3 * u * t * t * p2[0] + t * t * t * p3[0],
-    u * u * u * p0[1] + 3 * u * u * t * p1[1] + 3 * u * t * t * p2[1] + t * t * t * p3[1],
-  ];
-}
+// ---------- The flight path, travelled at constant speed ----------
+// A random zigzag of waypoints around the screen, with every corner rounded
+// off by a circular arc that's tangent to both sides. So the path is smooth
+// everywhere (its direction never jumps), and:
+//  - every arc is wide (radius at least a quarter of the screen's short side)
+//    and no single corner turns more than 70°, so it can only come about in a
+//    big sweeping loop, never a hairpin or a snap 180;
+//  - a rounded corner stays inside the waypoints' outline, so with every
+//    waypoint on screen the whole flight stays on screen.
+// It climbs straight up out of the launcher first and finishes on a straight
+// run into the target.
+const MAX_TURN = (70 * Math.PI) / 180;
+const MIN_RADIUS = 0.25; // × the screen's short side
 
-// Smooth curve through points (centripetal Catmull-Rom: no loops or cusps).
-function catmullRom(points, perSeg = 50) {
-  const P = [points[0], ...points, points[points.length - 1]];
-  const out = [];
-  const knot = (a, b) => Math.max(1e-3, Math.sqrt(Math.hypot(b[0] - a[0], b[1] - a[1])));
-  for (let i = 0; i < P.length - 3; i++) {
-    const [p0, p1, p2, p3] = [P[i], P[i + 1], P[i + 2], P[i + 3]];
-    const t0 = 0, t1 = t0 + knot(p0, p1), t2 = t1 + knot(p1, p2), t3 = t2 + knot(p2, p3);
-    const mix = (a, b, ta, tb, t) => [((tb - t) * a[0] + (t - ta) * b[0]) / (tb - ta), ((tb - t) * a[1] + (t - ta) * b[1]) / (tb - ta)];
-    for (let s = i ? 1 : 0; s <= perSeg; s++) {
-      const t = lerp(t1, t2, s / perSeg);
-      const a1 = mix(p0, p1, t0, t1, t), a2 = mix(p1, p2, t1, t2, t), a3 = mix(p2, p3, t2, t3, t);
-      const b1 = mix(a1, a2, t0, t2, t), b2 = mix(a2, a3, t1, t3, t);
-      out.push(mix(b1, b2, t1, t2, t));
-    }
-  }
-  return out;
-}
-
-// An unpredictable rollercoaster: straight up out of the launcher, then a run
-// of random swoops, climbs and dips around the screen (never doubling back
-// sharply, never leaving the screen), then a clear dive onto the target.
 function rollercoaster(W, H, start, target) {
-  const pad = Math.min(W, H) * 0.12;
-  const pts = [start, [start[0], start[1] - H * 0.22]];
-  let heading = -Math.PI / 2; // up
-  for (let i = 0; i < 8; i++) {
+  for (let attempt = 0; attempt < 1500; attempt++) {
+    const way = waypoints(W, H, start, target);
+    if (way) return roundCorners(way);
+  }
+  // Practically never: just climb, swing over and dive.
+  return roundCorners([start, [start[0], start[1] - H * 0.3], [W * 0.5, H * 0.35], target]);
+}
+
+const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+const angTo = (a, b) => Math.atan2(b[1] - a[1], b[0] - a[0]);
+
+function waypoints(W, H, start, target) {
+  const m = Math.min(W, H);
+  const pad = m * 0.09;
+  const inBox = ([x, y]) => x > pad && x < W - pad && y > pad && y < H - pad * 1.8;
+  const pts = [start, [start[0], start[1] - Math.max(H * 0.2, m * 0.25)]];
+  let h = -Math.PI / 2;
+  let prevLen = Math.hypot(pts[1][0] - pts[0][0], pts[1][1] - pts[0][1]) * 1.2; // first corner may use more of the climb
+  const legs = 6 + Math.floor(Math.random() * 3);
+  const mx = W / 2 - target[0], my = H * 0.5 - target[1], ml = Math.hypot(mx, my) || 1;
+  const lineup = [target[0] + (mx / ml) * m * 0.6, target[1] + (my / ml) * m * 0.6];
+  // The arc at a corner uses up to half of each leg; it must stay wide.
+  const okTurn = (t, inLen, outLen) => Math.abs(t) <= MAX_TURN
+    && Math.min(inLen * 0.5, outLen * 0.5) / Math.tan(Math.max(Math.abs(t), 1e-6) / 2) >= m * MIN_RADIUS;
+  for (let i = 0; i < legs; i++) {
     const p = pts[pts.length - 1];
     let next = null;
+    // Lean each turn toward a random spot around the middle (so it steers
+    // away from the edges before it gets cornered), plus a random swerve.
+    // The last legs lean toward a spot in line with the target instead, so the
+    // final run in is a gentle turn.
+    const aim = i >= legs - 2 ? lineup : [W * (0.25 + Math.random() * 0.5), H * (0.2 + Math.random() * 0.45)];
+    const lean = wrap(angTo(p, aim) - h) * 0.9;
     for (let tries = 0; tries < 40 && !next; tries++) {
-      const h = heading + (Math.random() - 0.5) * 2.4; // turn up to ~±70°
-      const step = Math.min(W, H) * (0.3 + Math.random() * 0.25);
-      const c = [p[0] + Math.cos(h) * step, p[1] + Math.sin(h) * step];
-      if (c[0] > pad && c[0] < W - pad && c[1] > pad && c[1] < H - pad * 1.6) { next = c; heading = h; }
+      const t = Math.max(-MAX_TURN, Math.min(MAX_TURN, lean + (Math.random() * 2 - 1) * MAX_TURN * 0.85));
+      const len = m * (0.3 + Math.random() * 0.25);
+      if (!okTurn(t, prevLen, len)) continue;
+      const c = [p[0] + Math.cos(h + t) * len, p[1] + Math.sin(h + t) * len];
+      if (inBox(c)) { next = c; h += t; prevLen = len; }
     }
-    if (!next) heading += Math.PI * 0.6; // boxed in: swing around and try again
-    else pts.push(next);
+    if (!next) return null;
+    pts.push(next);
   }
-  // Line up a dive onto the target from below-left.
-  pts.push([target[0] - W * 0.2, target[1] + H * 0.28]);
+  // The final run into the target must also be a gentle turn, and long enough.
+  const p = pts[pts.length - 1];
+  const t = wrap(angTo(p, target) - h);
+  const finalLen = Math.hypot(target[0] - p[0], target[1] - p[1]);
+  if (finalLen < m * 0.45 || !okTurn(t, prevLen, finalLen * 0.9)) return null;
   pts.push(target);
-  return catmullRom(pts);
+  return pts;
+}
+
+// Lines between the waypoints, each corner replaced by a tangent circular arc.
+function roundCorners(pts) {
+  const out = [pts[0]];
+  const STEP = 3; // px between samples
+  // Skip repeats: a zero-length step has no direction (the nose would flick).
+  const put = (q) => { const l = out[out.length - 1]; if (Math.hypot(q[0] - l[0], q[1] - l[1]) > 0.5) out.push(q); };
+  const line = (a, b) => {
+    const n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / STEP));
+    for (let i = 1; i <= n; i++) put([lerp(a[0], b[0], i / n), lerp(a[1], b[1], i / n)]);
+  };
+  let from = pts[0];
+  for (let i = 1; i < pts.length - 1; i++) {
+    const a = pts[i - 1], p = pts[i], b = pts[i + 1];
+    const lin = Math.hypot(p[0] - a[0], p[1] - a[1]), lout = Math.hypot(b[0] - p[0], b[1] - p[1]);
+    const ui = [(p[0] - a[0]) / lin, (p[1] - a[1]) / lin], uo = [(b[0] - p[0]) / lout, (b[1] - p[1]) / lout];
+    const turn = wrap(Math.atan2(uo[1], uo[0]) - Math.atan2(ui[1], ui[0]));
+    if (Math.abs(turn) < 1e-3) continue;
+    // Use as much of each leg as possible (half of it; the first and last
+    // legs keep a straight bit at the launcher and before the target).
+    const capIn = i === 1 ? lin * 0.6 : lin * 0.5, capOut = i === pts.length - 2 ? lout * 0.45 : lout * 0.5;
+    const tl = Math.min(capIn, capOut);
+    const r = tl / Math.tan(Math.abs(turn) / 2);
+    const s = [p[0] - ui[0] * tl, p[1] - ui[1] * tl];
+    line(from, s);
+    const side = Math.sign(turn); // +1 turns clockwise on screen (y down)
+    const cx = s[0] - ui[1] * r * side, cy = s[1] + ui[0] * r * side;
+    const a0 = Math.atan2(s[1] - cy, s[0] - cx);
+    const n = Math.max(2, Math.ceil((Math.abs(turn) * r) / STEP));
+    for (let k = 1; k <= n; k++) {
+      const ang = a0 + (turn * k) / n;
+      put([cx + Math.cos(ang) * r, cy + Math.sin(ang) * r]);
+    }
+    from = out[out.length - 1];
+  }
+  line(from, pts[pts.length - 1]);
+  return out;
 }
 
 // Arc-length lookup: point and heading at a fraction of the total length.
@@ -454,11 +506,11 @@ export async function runNuke({ stage, physics, title, uiEls, input, target, dat
   };
   requestAnimationFrame(animateCloud);
 
-  // NUKE sits in the (still standing) word box a couple of seconds more...
+  // NUKE sits in the (still standing) word box for 3 more seconds...
   await sleep(700);
   for (const n of panelish) if (n) n.classList.remove('quake');
   stage.fx.shake = 0.35;
-  await sleep(2000);
+  await sleep(3000);
 
   // ...then floats out of the box to the middle of the screen as plain text,
   // and the empty box falls away.
