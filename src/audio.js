@@ -7,6 +7,7 @@ let ctx = null;
 let master = null;
 let noiseBuf = null;
 let muted = false;
+let unlocked = false; // sound has worked at least once (the visitor has interacted)
 try { muted = localStorage.getItem('rubish-muted') === '1'; } catch { /* storage blocked */ }
 
 function ensure() {
@@ -14,6 +15,8 @@ function ensure() {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return null;
     ctx = new AC();
+    ctx.addEventListener('statechange', () => { if (ctx.state === 'running') unlocked = true; });
+    if (ctx.state === 'running') unlocked = true;
     master = ctx.createGain();
     master.gain.value = muted ? 0 : 0.45;
     master.connect(ctx.destination);
@@ -28,7 +31,15 @@ for (const ev of ['pointerdown', 'keydown', 'touchstart']) window.addEventListen
 // Try right away too: browsers that already allow sound here will start running.
 ensure();
 
-const ready = () => ctx && ctx.state === 'running' && !muted;
+// Browsers suspend audio when the tab sits in the background; the next sound
+// would be lost while it wakes back up. Once sound has worked before, schedule
+// it anyway and wake the context: it plays as soon as audio is running again.
+const ready = () => {
+  if (!ctx || muted) return false;
+  if (ctx.state === 'running') return true;
+  if (unlocked && ctx.state !== 'closed') { ctx.resume(); return true; }
+  return false;
+};
 
 function tone({ type = 'square', freq, to, dur = 0.08, vol = 0.12, delay = 0, attack = 0.004 }) {
   if (!ready()) return;
