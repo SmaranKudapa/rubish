@@ -250,9 +250,13 @@ async function landingLoop(token) {
     await sleep(Math.max(1000, 3000 - (performance.now() - start)), alive);
   }
 }
-function restartLoop() {
+// delay: let the start page sit still for a moment first (coming back home).
+function restartLoop(delay = 0) {
   const token = ++loopToken;
-  loopPromise = loopPromise.then(() => landingLoop(token));
+  const alive = () => mode === 'landing' && token === loopToken;
+  loopPromise = loopPromise
+    .then(() => (delay ? sleep(delay, alive) : null))
+    .then(() => landingLoop(token));
 }
 
 function caption(text) {
@@ -444,7 +448,7 @@ async function beginLetter() {
 // stays gone until the next letter or cube brings the hints back.
 // Returns a promise that resolves once the chip is in the cube (right away if
 // it's already gone), so what the key does only happens then.
-function tossKey(btn) {
+function tossKey(btn, label = null) {
   if (btn.classList.contains('tossed') || btn.closest('[hidden]')) return btn._landed || Promise.resolve();
   const src = btn.querySelector('kbd') || btn.querySelector('span') || btn;
   const r = src.getBoundingClientRect();
@@ -461,11 +465,35 @@ function tossKey(btn) {
   const x1 = c.left + c.width / 2, y1 = c.top + c.height / 2;
   const lift = 110 + Math.abs(y0 - y1) * 0.35; // how high it arcs above the straight line
   const spin = (Math.random() < 0.5 ? -1 : 1) * (420 + Math.random() * 300);
-  const PREP = 0.12; // the first bit: it crouches before jumping out
+  // A label (Shift+Enter): the chip first stretches out sideways to show it.
+  const w0 = r.width;
+  let w1 = w0;
+  if (label) {
+    chip.textContent = label;
+    chip.style.width = 'auto';
+    w1 = Math.max(w0, chip.offsetWidth + 4);
+    chip.style.width = `${w0}px`;
+    sfx.tick(0.3);
+  }
+  const STRETCH = label ? 300 : 0, CROUCH = 100, FLY = 740;
+  const TOTAL = STRETCH + CROUCH + FLY;
+  const PREP = (STRETCH + CROUCH) / TOTAL;
   let launched = false;
-  return (btn._landed = tween(840, (_, t) => {
+  return (btn._landed = tween(TOTAL, (_, t) => {
+    const ms = t * TOTAL;
+    if (ms < STRETCH) {
+      // Stretch out from the middle (with a little overshoot), revealing the label.
+      const p = ms / STRETCH;
+      const e = 1 + 2.2 * (p - 1) ** 3 + 1.2 * (p - 1) ** 2;
+      const w = w0 + (w1 - w0) * e;
+      chip.style.width = `${w}px`;
+      chip.style.left = `${x0 - w / 2}px`;
+      return;
+    }
     if (t < PREP) {
-      const p = Math.sin((t / PREP) * Math.PI / 2);
+      const p = Math.sin(((ms - STRETCH) / CROUCH) * Math.PI / 2);
+      chip.style.width = `${w1}px`;
+      chip.style.left = `${x0 - w1 / 2}px`;
       chip.style.transform = `translateY(${p * 3}px) scale(${1 + 0.32 * p}, ${1 - 0.4 * p})`;
       return;
     }
@@ -487,9 +515,10 @@ function tossKey(btn) {
     const stretch = 1 + 0.35 * Math.exp(-7 * u); // stretched tall as it springs off
     chip.style.transform = `translate(${x - x0}px, ${y - y0}px) rotate(${spin * u}deg) scale(${s / stretch}, ${s * stretch})`;
   }, linear).then(() => {
-    // Slams into the cube.
+    // Slams into the cube and bursts into pieces of cube confetti.
     chip.remove();
-    impactFx(x1, y1, { size: 2.4, shards: 14, reach: 110 });
+    impactFx(x1, y1, { size: 2.4, shards: 0 });
+    if (!REDUCED) physics.burst(x1, y1, null, label ? 22 : 14);
     stage.punch(1);
     sfx.impact();
   }));
@@ -545,11 +574,12 @@ function next() {
 }
 
 // Enter (not shown anywhere in the UI): play every remaining move quickly.
-function finishLetter() {
+// label: Shift+Enter stretches the chip out to say so before it's tossed.
+function finishLetter(label = null) {
   if (!job || (mode !== 'intro' && mode !== 'steps')) return;
   const j = job;
   // Nothing happens until the ENTER chip lands in the cube.
-  tossKey($('skip')).then(() => {
+  tossKey($('skip'), label).then(() => {
     if (job !== j) return;
     if (mode === 'intro') { j.finish = true; return; } // do it as soon as it's ready
     if (mode !== 'steps' || j.rush) return;
@@ -728,7 +758,7 @@ async function solvedAll() {
   input.value = '';
   slideIn(entry);
   input.focus({ preventScroll: true });
-  restartLoop();
+  restartLoop(2000); // home again: sit still for 2 seconds before shuffling
 }
 
 // Esc during a word: back to the plain landing page.
@@ -764,7 +794,7 @@ function leaveNow() {
   stage.setSway(1);
   input.value = '';
   slideIn(entry);
-  restartLoop();
+  restartLoop(2000); // home again: sit still for 2 seconds before shuffling
 }
 
 // ---------- Input wiring ----------
@@ -800,7 +830,7 @@ document.addEventListener('keydown', (e) => {
       e.preventDefault();
       if (e.shiftKey && word) word.auto = true; // Shift+Enter: finish the rest of the word too
       if (e.shiftKey && solving) solving.auto = true; // ...or solve every remaining cube
-      finishLetter();
+      finishLetter(e.shiftKey ? 'shift + enter' : null);
     }
     else if (e.key === 'Escape') goHome();
     return;

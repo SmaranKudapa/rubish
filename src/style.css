@@ -655,6 +655,10 @@ body.no-cursor, body.no-cursor * { cursor: none !important; }
 /* The flying key chip */
 .kbd-toss {
   position: fixed;
+  white-space: nowrap;
+  overflow: hidden;
+  padding: 0 6px;
+  box-sizing: border-box;
   z-index: 60;
   display: flex;
   align-items: center;

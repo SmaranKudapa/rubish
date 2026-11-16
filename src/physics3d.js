@@ -474,14 +474,14 @@ export function createPhysics({ back, front, obstacles = () => [], sound = {}, o
     },
 
     // A popped balloon: a burst of confetti cubes all in one color, flying out
-    // every which way from (x, y).
+    // every which way from (x, y). color = null: regular multicolor confetti.
     burst(x, y, color, count = 28) {
       for (let i = 0; i < count; i++) {
         const a = rand(0, Math.PI * 2), sp = rand(180, 620);
         add({
           x: x + rand(-6, 6), y: y + rand(-6, 6),
           vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 260,
-          size: rand(8, 13), faces: Array(6).fill(color),
+          size: rand(8, 13), faces: color ? Array(6).fill(color) : shuffle([...COLOR_ORDER]),
         });
       }
     },
