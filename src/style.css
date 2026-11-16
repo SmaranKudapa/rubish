@@ -630,14 +630,14 @@ body.no-cursor, body.no-cursor * { cursor: none !important; }
   width: 22px;
   height: 22px;
   margin: -11px 0 0 -11px;
-  border: 3px solid var(--paper);
-  outline: 2px solid var(--ink);
+  border: 3px solid rgba(255, 255, 255, 0.75);
+  outline: 2px solid rgba(17, 17, 17, 0.35);
   pointer-events: none;
   animation: impact-ring 0.45s steps(7) forwards;
 }
 .impact-ring.late { animation-delay: 0.08s; opacity: 0; border-width: 2px; }
 @keyframes impact-ring {
-  0% { transform: rotate(45deg) scale(0.3); opacity: 1; }
+  0% { transform: rotate(45deg) scale(0.3); opacity: 0.45; } /* see-through, so the cube shows behind it */
   100% { transform: rotate(45deg) scale(calc(3 * var(--s, 1))); opacity: 0; }
 }
 .impact-shard {
