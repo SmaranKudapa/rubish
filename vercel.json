@@ -1,5 +1,5 @@
 {
-  "buildCommand": "",
-  "outputDirectory": "public",
-  "framework": null
+  "framework": "vite",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist"
 }

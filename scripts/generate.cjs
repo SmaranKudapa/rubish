@@ -6,7 +6,7 @@
 const fs = require('fs');
 const path = require('path');
 const Cube = require('cubejs');
-const glyphs = require('./glyphs');
+const glyphs = require('./glyphs.cjs');
 
 const TRIES = Number(process.env.TRIES || 60);
 const CENTER = 'F'; // green front center
@@ -119,5 +119,5 @@ for (const [ch, glyph] of Object.entries(glyphs)) {
   console.log(`${ch}: ${best.length} moves  ${best.join(' ')}`);
 }
 
-fs.writeFileSync(path.join(__dirname, '..', 'public', 'solutions.json'), JSON.stringify(out));
-console.log('Wrote public/solutions.json');
+fs.writeFileSync(path.join(__dirname, '..', 'src', 'solutions.json'), JSON.stringify(out));
+console.log('Wrote src/solutions.json');
