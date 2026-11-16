@@ -25,6 +25,8 @@ function ensure() {
   return ctx;
 }
 for (const ev of ['pointerdown', 'keydown', 'touchstart']) window.addEventListener(ev, ensure, { capture: true, passive: true });
+// Try right away too: browsers that already allow sound here will start running.
+ensure();
 
 const ready = () => ctx && ctx.state === 'running' && !muted;
 
@@ -118,6 +120,26 @@ export const sfx = {
   },
   pop() { tone({ freq: 500, to: 1300, dur: 0.08, vol: 0.08 }); },
 };
+
+// True once the browser actually lets us play sound.
+export function audioRunning() {
+  ensure();
+  return !!ctx && ctx.state === 'running';
+}
+
+// Resolves when sound can play. Browsers only allow audio after the visitor
+// clicks, taps or presses a key, so this may wait for that first gesture.
+export function waitForAudio() {
+  return new Promise((resolve) => {
+    if (audioRunning() || !ctx) return resolve();
+    const go = () => {
+      ensure();
+      if (ctx.state === 'running') resolve();
+      else ctx.resume().then(resolve, resolve);
+    };
+    for (const ev of ['pointerdown', 'keydown', 'touchstart']) window.addEventListener(ev, go, { once: true, capture: true });
+  });
+}
 
 export const isMuted = () => muted;
 export function setMuted(m) {
