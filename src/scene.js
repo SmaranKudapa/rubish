@@ -290,29 +290,91 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
     if (size < 0.15) return; // the cube was barely there (still growing in)
     group.scale.setScalar(size);
     scene.add(group);
+    sound.boing?.(); // the axles springing back
     const side = Math.random() < 0.5 ? -1 : 1;
     rags.push({
-      g: group, size, born: performance.now(), setReach, reach0, reach: reach0,
+      g: group, size, born: performance.now(), t0: performance.now(), setReach, reach0, reach: reach0, held: false,
       v: new THREE.Vector3(side * (1.5 + Math.random() * 3), 6 + Math.random() * 4, (Math.random() - 0.3) * 1.2),
       w: new THREE.Vector3((Math.random() - 0.5) * 16, (Math.random() - 0.5) * 16, (Math.random() - 0.5) * 16),
     });
   }
-  const RAG_LIFE = 7000;
+  const RAG_LIFE = 12000; // long enough to grab and play with
+
+  // Cores can be grabbed and dragged around, and thrown when let go.
+  let ragDrag = null;
+  const dragPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+  const pointAt = (x, y, z) => {
+    ndc.set((x / window.innerWidth) * 2 - 1, -(y / window.innerHeight) * 2 + 1);
+    raycaster.setFromCamera(ndc, camera);
+    dragPlane.constant = -z;
+    return raycaster.ray.intersectPlane(dragPlane, new THREE.Vector3());
+  };
+  let swallowRagClick = 0;
+  window.addEventListener('pointerdown', (e) => {
+    if (!rags.length || (e.button && e.button !== 0)) return;
+    ndc.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
+    raycaster.setFromCamera(ndc, camera);
+    const hit = raycaster.intersectObjects(rags.map((r) => r.g), true)[0];
+    if (!hit) return;
+    const r = rags.find((q) => { for (let o = hit.object; o; o = o.parent) if (o === q.g) return true; return false; });
+    const p = r && pointAt(e.clientX, e.clientY, r.g.position.z);
+    if (!p) return;
+    e.stopImmediatePropagation(); // (the debris and party listeners don't get this press)
+    e.preventDefault();
+    r.held = true;
+    r.born = performance.now(); // a fresh lease on life
+    ragDrag = { r, id: e.pointerId, off: r.g.position.clone().sub(p), last: p.clone(), lt: performance.now(), vel: new THREE.Vector3() };
+    document.body.classList.add('grabbing');
+  }, { capture: true });
+  window.addEventListener('pointermove', (e) => {
+    if (!ragDrag || e.pointerId !== ragDrag.id) return;
+    const p = pointAt(e.clientX, e.clientY, ragDrag.r.g.position.z);
+    if (!p) return;
+    const now = performance.now();
+    const dt = Math.max(8, now - ragDrag.lt) / 1000;
+    ragDrag.vel.copy(p).sub(ragDrag.last).divideScalar(dt);
+    ragDrag.last.copy(p);
+    ragDrag.lt = now;
+    ragDrag.r.g.position.copy(p).add(ragDrag.off);
+  }, { capture: true });
+  const dropRag = (e) => {
+    if (!ragDrag || e.pointerId !== ragDrag.id) return;
+    const { r, vel, lt } = ragDrag;
+    // Thrown with the pointer's speed (or just dropped if it wasn't moving).
+    if (performance.now() - lt < 80) r.v.copy(vel).clampLength(0, 28);
+    else r.v.set(0, 0, 0);
+    r.v.z = 0;
+    r.w.set(r.v.y * 0.6 + (Math.random() - 0.5) * 3, (Math.random() - 0.5) * 3, -r.v.x * 0.9);
+    r.held = false;
+    ragDrag = null;
+    swallowRagClick = performance.now();
+    document.body.classList.remove('grabbing');
+    e.stopPropagation();
+  };
+  window.addEventListener('pointerup', dropRag, { capture: true });
+  window.addEventListener('pointercancel', dropRag, { capture: true });
+  // The click that ends a drag shouldn't press whatever is underneath.
+  window.addEventListener('click', (e) => {
+    if (performance.now() - swallowRagClick < 250) { e.stopPropagation(); e.preventDefault(); }
+  }, { capture: true });
   function stepRags(dt, now) {
     if (!rags.length) return;
     const e = screenEdges(camZ);
     for (let i = rags.length - 1; i >= 0; i--) {
       const r = rags[i];
       const age = now - r.born;
-      // The axles pull back to normal over the fall, with a little rubbery
-      // overshoot at the end.
-      const p = Math.min(1, age / 900);
+      // The axles spring back to normal like springs: boinging in and out a few
+      // times, less each time. (Squashing in, they stop short of the hub.)
       if (r.reach !== CORE_REST_REACH) {
-        const k = p >= 1 ? 0 : (1 - p) ** 2 - 0.1 * Math.sin(Math.PI * p) * p * p;
-        r.reach = CORE_REST_REACH + (r.reach0 - CORE_REST_REACH) * Math.max(k, -0.06); // (a small undershoot, never inside the hub)
-        if (p >= 1) r.reach = CORE_REST_REACH;
+        const ts = (now - r.t0) / 1000;
+        let k = Math.exp(-3 * ts) * Math.cos(Math.PI * 2 * 2.2 * ts);
+        if (k < 0) k *= 0.12;
+        r.reach = CORE_REST_REACH + (r.reach0 - CORE_REST_REACH) * k;
+        if (ts > 2) r.reach = CORE_REST_REACH;
         r.setReach(r.reach);
       }
+      // Held by the pointer: it goes where it's dragged.
+      if (r.held) { r.born = now; continue; }
       const R = Math.max(0.62, r.reach * 0.8) * r.size; // roughly how far it reaches
       r.v.y -= 30 * dt;
       r.g.position.addScaledVector(r.v, dt);
