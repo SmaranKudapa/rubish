@@ -69,7 +69,10 @@ const EXPLODE_AT = 1.6; // spread beyond this blows the cube apart
 
 // onShatter(pieces): called with every cubie of a cube that zoomed apart too far.
 // sound: optional { thud, whoosh } effects.
-export function createStage(container, cube, { onShatter = () => {}, sound = {} } = {}) {
+// onCore({ x, y, vx, vy, r }): every frame, for each loose core, where it is on
+// screen, how fast it's moving (px/s) and how big it is (px), so the page can
+// let it smash into things.
+export function createStage(container, cube, { onShatter = () => {}, onCore = () => {}, sound = {} } = {}) {
   // Phones and tablets: render a bit lighter so it stays smooth.
   const touch = !matchMedia('(hover: hover) and (pointer: fine)').matches;
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -302,6 +305,18 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
   }
   const RAG_LIFE = 12000; // long enough to grab and play with
 
+  // Tell the page where each core is on screen and how fast it's going.
+  const sp = new THREE.Vector3();
+  function reportCore(r, dt) {
+    const [x, y] = toScreen(sp.copy(r.g.position).project(camera));
+    const [x2] = toScreen(sp.copy(r.g.position).add(new THREE.Vector3(0.6 * r.size, 0, 0)).project(camera));
+    const vx = r.sx === undefined ? 0 : (x - r.sx) / Math.max(dt, 0.001);
+    const vy = r.sy === undefined ? 0 : (y - r.sy) / Math.max(dt, 0.001);
+    r.sx = x;
+    r.sy = y;
+    onCore({ x, y, vx, vy, r: Math.abs(x2 - x) });
+  }
+
   // Cores can't pass through a cube: each whole cube on stage is a solid box
   // (turned the way the cube is). A core inside one is pushed back out to its
   // surface and bounces off.
@@ -466,7 +481,7 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
         if (p >= 1) { r.setArm(r.armBack.i, CORE_REST_REACH); r.armBack = null; }
       }
       // Held by a handle: it hangs from the pointer on a spring.
-      if (r.held) { holdRag(r, dt); collideCubes(r); r.born = now; continue; }
+      if (r.held) { holdRag(r, dt); collideCubes(r); reportCore(r, dt); r.born = now; continue; }
       const R = Math.max(0.62, r.reach * 0.8) * r.size; // roughly how far it reaches
       r.v.y -= 30 * dt;
       r.g.position.addScaledVector(r.v, dt);
@@ -496,6 +511,7 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
         r.w.multiplyScalar(Math.exp(-dt * 2.5));
       }
       collideCubes(r);
+      reportCore(r, dt);
       r.g.rotation.x += r.w.x * dt;
       r.g.rotation.y += r.w.y * dt;
       r.g.rotation.z += r.w.z * dt;

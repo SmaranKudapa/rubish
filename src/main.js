@@ -35,6 +35,7 @@ const ach = createAchievements({
 RubiksCube.onTurn = (duration) => sfx.turn(duration);
 const cube = new RubiksCube();
 const stage = createStage($('cube'), cube, {
+  onCore: (c) => maceHit(c),
   onShatter: (pieces, { byZoom } = {}) => {
     physics.shatter(pieces);
     sfx.explode();
@@ -650,6 +651,41 @@ function tossKey(btn, label = null) {
   });
 
   return (btn._landed = (big ? struggle() : Promise.resolve(true)).then((ok) => (ok ? flight() : false)));
+}
+
+// ---------- A swung core is a mace: it smashes into the page's buttons ----------
+// Anything it hits while moving fast gets knocked away in the swing's direction
+// (harder the faster it's going) and springs back, with an impact.
+const MACE_TARGETS = '.swatch, #char, #go, #solve, #mute, #ach-btn, .title .mini, #next, #skip, #leave';
+function maceHit({ x, y, vx, vy, r }) {
+  const speed = Math.hypot(vx, vy);
+  if (speed < 650) return; // just nudging it around: no damage
+  const now = performance.now();
+  for (const el of document.querySelectorAll(MACE_TARGETS)) {
+    if (now - (el._maceT || 0) < 350) continue;
+    if (el.closest('[hidden]') || el.offsetParent === null) continue;
+    const b = el.getBoundingClientRect();
+    if (!b.width || !b.height) continue;
+    const cx = Math.max(b.left, Math.min(x, b.right)), cy = Math.max(b.top, Math.min(y, b.bottom));
+    if (Math.hypot(x - cx, y - cy) > r) continue;
+    el._maceT = now;
+    smack(el, vx / speed, vy / speed, speed, cx, cy);
+  }
+}
+function smack(el, nx, ny, speed, hx, hy) {
+  const d = Math.min(38, speed / 45); // how far it's knocked
+  const spin = (nx >= 0 ? 1 : -1) * Math.min(28, speed / 70);
+  // composite 'add' stacks on top of whatever transform it already has.
+  el.animate([
+    { transform: 'translate(0, 0) rotate(0deg)' },
+    { transform: `translate(${nx * d}px, ${ny * d}px) rotate(${spin}deg)`, offset: 0.15 },
+    { transform: `translate(${-nx * d * 0.3}px, ${-ny * d * 0.3}px) rotate(${-spin * 0.4}deg)`, offset: 0.45 },
+    { transform: `translate(${nx * d * 0.1}px, ${ny * d * 0.1}px) rotate(${spin * 0.15}deg)`, offset: 0.7 },
+    { transform: 'translate(0, 0) rotate(0deg)' },
+  ], { duration: 650, easing: 'ease-out', composite: 'add' });
+  impactFx(hx, hy, { size: Math.min(1.4, 0.6 + speed / 3000), shards: 6, reach: 34 });
+  sfx.impact();
+  if (el.matches('.title .mini')) el.click(); // the title cube spins from the hit
 }
 
 // A pixel shockwave (a square ring) and a spray of little shards at (x, y).
