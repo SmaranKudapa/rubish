@@ -204,9 +204,10 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
   }
 
   // ---------- Zoom out on a cube: its pieces spread apart, then it blows up ----------
+  let allGone = false; // the nuke blew every cube up for good: nothing comes back
   function zoomSpread(t, amount) {
     const c = t.cube;
-    if (c.exploding || !t.group.visible) return;
+    if (allGone || c.exploding || !t.group.visible) return;
     c.spread = Math.max(0, c.spread + amount);
     c.spreadT = performance.now();
     if (c.spread > EXPLODE_AT) shatter(t);
@@ -298,6 +299,8 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
     if (!respawn) return;
     const set = t.slot ? (y) => { t.slot.y = y; } : (y) => { fx.mainY = y; };
     setTimeout(async () => {
+      // The nuke went off while it was in pieces: it stays gone with the rest.
+      if (allGone) return;
       // Fall back in from above the very top of the window (ease in), then a
       // little bounce. Move it up there *before* showing it so it never blinks
       // into view at its old spot.
@@ -561,6 +564,7 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
 
     // Blow up every cube on stage for good (the nuke).
     shatterAll() {
+      allGone = true; // cubes already in pieces (zoom-boomed) won't drop back in either
       for (const t of allTargets()) if (t.group.visible && !t.cube.exploding) shatter(t, false);
     },
 
