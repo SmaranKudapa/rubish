@@ -663,7 +663,7 @@ function maceHit({ x, y, vx, vy, r }) {
   const now = performance.now();
   for (const el of document.querySelectorAll(MACE_TARGETS)) {
     if (now - (el._maceT || 0) < 350) continue;
-    if (el.closest('[hidden]') || el.offsetParent === null) continue;
+    if (!maceable(el)) continue;
     const b = el.getBoundingClientRect();
     if (!b.width || !b.height) continue;
     const cx = Math.max(b.left, Math.min(x, b.right)), cy = Math.max(b.top, Math.min(y, b.bottom));
@@ -671,6 +671,15 @@ function maceHit({ x, y, vx, vy, r }) {
     el._maceT = now;
     smack(el, vx / speed, vy / speed, speed, cx, cy);
   }
+}
+// Only things that are really there: not hidden or faded out (including by a
+// parent, like the corner buttons during a word), and not a title cube that
+// has already been blown up.
+function maceable(el) {
+  if (el.closest('[hidden]') || el.classList.contains('gone')) return false;
+  if (el.checkVisibility) return el.checkVisibility({ opacityProperty: true, visibilityProperty: true });
+  const cs = getComputedStyle(el);
+  return cs.display !== 'none' && cs.visibility !== 'hidden' && parseFloat(cs.opacity) > 0.05;
 }
 function smack(el, nx, ny, speed, hx, hy) {
   const d = Math.min(38, speed / 45); // how far it's knocked
