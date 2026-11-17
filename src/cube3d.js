@@ -165,6 +165,42 @@ const hubGeo = new THREE.IcosahedronGeometry(0.4, 1); // low-poly, like the rest
 const armGeo = new THREE.BoxGeometry(0.2, 0.2, 1);
 const capGeo = new THREE.CylinderGeometry(0.17, 0.17, 0.08, 8);
 
+// Build a core: { group, setReach(r) } where r is how far each axle reaches
+// from the middle (to a center piece's inner face).
+export function buildCore() {
+  const group = new THREE.Group();
+  group.add(new THREE.Mesh(hubGeo, coreMat));
+  const arms = [];
+  for (const axis of ['x', 'y', 'z']) {
+    const arm = new THREE.Mesh(armGeo, coreMat);
+    if (axis === 'x') arm.rotation.y = Math.PI / 2;
+    if (axis === 'y') arm.rotation.x = Math.PI / 2;
+    const caps = [-1, 1].map((sgn) => {
+      const cap = new THREE.Mesh(capGeo, capMat);
+      if (axis === 'x') cap.rotation.z = Math.PI / 2;
+      if (axis === 'z') cap.rotation.x = Math.PI / 2;
+      cap.userData = { axis, sgn };
+      group.add(cap);
+      return cap;
+    });
+    group.add(arm);
+    arms.push({ arm, caps });
+  }
+  const setReach = (reach) => {
+    for (const { arm, caps } of arms) {
+      arm.scale.z = reach * 2;
+      for (const cap of caps) {
+        const { axis, sgn } = cap.userData;
+        cap.position.set(0, 0, 0);
+        cap.position[axis] = sgn * (reach - 0.04);
+      }
+    }
+  };
+  setReach(SP - 0.5);
+  return { group, setReach };
+}
+export const CORE_REST_REACH = SP - 0.5;
+
 export class RubiksCube {
   constructor() {
     this.group = new THREE.Group();
@@ -200,37 +236,13 @@ export class RubiksCube {
       this.group.add(c);
       this.cubies.push(c);
     }
-    // The core, only seen when the cube is zoomed apart.
-    this.core = new THREE.Group();
-    this.coreArms = [];
-    this.core.add(new THREE.Mesh(hubGeo, coreMat));
-    for (const axis of ['x', 'y', 'z']) {
-      const arm = new THREE.Mesh(armGeo, coreMat);
-      if (axis === 'x') arm.rotation.y = Math.PI / 2;
-      if (axis === 'y') arm.rotation.x = Math.PI / 2;
-      const caps = [-1, 1].map((sgn) => {
-        const cap = new THREE.Mesh(capGeo, capMat);
-        if (axis === 'x') cap.rotation.z = Math.PI / 2;
-        if (axis === 'z') cap.rotation.x = Math.PI / 2;
-        cap.userData = { axis, sgn };
-        this.core.add(cap);
-        return cap;
-      });
-      this.core.add(arm);
-      this.coreArms.push({ arm, caps });
-    }
+    // The core, only seen when the cube is zoomed apart. It moves with the
+    // cube (and shakes with it).
+    const core = buildCore();
+    this.core = core.group;
+    this.setCoreReach = core.setReach;
     this.core.visible = false;
     this.group.add(this.core);
-  }
-
-  // The core rattles around inside while the cube is zoomed apart, harder the
-  // further apart it is. Called every frame by the stage.
-  rattleCore() {
-    if (!this.core.visible) return;
-    const a = Math.min(1, this.spread / 1.2);
-    const j = (m) => (Math.random() - 0.5) * m * a;
-    this.core.position.set(j(0.16), j(0.16), j(0.16));
-    this.core.rotation.set(j(0.35), j(0.35), j(0.35));
   }
 
   // Exploded view: the stage scales the whole group by (1 + k) and each cubie
@@ -243,15 +255,7 @@ export class RubiksCube {
     // the center pieces as they move away.
     this.core.visible = k > 0.01;
     this.core.scale.setScalar(s);
-    const reach = SP * (1 + k) - 0.5; // from the middle to a center piece's inner face
-    for (const { arm, caps } of this.coreArms) {
-      arm.scale.z = reach * 2;
-      for (const cap of caps) {
-        const { axis, sgn } = cap.userData;
-        cap.position.set(0, 0, 0);
-        cap.position[axis] = sgn * (reach - 0.04);
-      }
-    }
+    this.setCoreReach(SP * (1 + k) - 0.5); // from the middle to a center piece's inner face
   }
 
   // Queue a move. duration 0 = instant. record=false keeps it out of history.

@@ -3,7 +3,7 @@
 // into place and the earlier letters drop in beside it. Every cube can be
 // dragged around on its own.
 import * as THREE from 'three';
-import { easeInOutCubic, easeOutBack } from './cube3d.js';
+import { easeInOutCubic, easeOutBack, buildCore } from './cube3d.js';
 
 const SPACING = 4.4; // distance between cubes in the finale
 const SLOT_TILT = [0.3, -0.32]; // x/y tilt of each cube in the finale
@@ -267,6 +267,79 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
   container.addEventListener('pointerup', liftTouch);
   container.addEventListener('pointercancel', liftTouch);
 
+  // ---------- The core, ragdolling out of a cube that burst ----------
+  // A fresh core (axles back to normal length) takes the old one's place and
+  // goes flying: tumbling under gravity, bouncing off the floor and the sides
+  // of the screen until it settles, then shrinking away after a while.
+  const rags = [];
+  const rv = new THREE.Vector3(), rq = new THREE.Quaternion(), rs = new THREE.Vector3();
+  function ragdollCore(c) {
+    c.core.updateMatrixWorld(true);
+    c.core.getWorldPosition(rv);
+    c.core.getWorldQuaternion(rq);
+    c.core.getWorldScale(rs);
+    const { group } = buildCore();
+    castShadows(group);
+    group.position.copy(rv);
+    group.quaternion.copy(rq);
+    const size = Math.min(rs.x, 1.4);
+    if (size < 0.15) return; // the cube was barely there (still growing in)
+    group.scale.setScalar(size);
+    scene.add(group);
+    const side = Math.random() < 0.5 ? -1 : 1;
+    rags.push({
+      g: group, size, born: performance.now(),
+      v: new THREE.Vector3(side * (1.5 + Math.random() * 3), 6 + Math.random() * 4, (Math.random() - 0.3) * 1.2),
+      w: new THREE.Vector3((Math.random() - 0.5) * 16, (Math.random() - 0.5) * 16, (Math.random() - 0.5) * 16),
+    });
+  }
+  const RAG_LIFE = 7000;
+  function stepRags(dt, now) {
+    if (!rags.length) return;
+    const e = screenEdges(camZ);
+    for (let i = rags.length - 1; i >= 0; i--) {
+      const r = rags[i];
+      const R = 0.62 * r.size; // roughly how far it reaches
+      r.v.y -= 30 * dt;
+      r.g.position.addScaledVector(r.v, dt);
+      // Stay near the cubes' depth (in front of the wall behind them).
+      if (r.g.position.z > 1.2) { r.g.position.z = 1.2; r.v.z *= -0.4; }
+      if (r.g.position.z < -1.5) { r.g.position.z = -1.5; r.v.z *= -0.4; }
+      // The screen's edges at its depth (nearer the camera, they close in), so
+      // it lands on the floor you can see instead of dropping out of view.
+      const f = (camZ - r.g.position.z) / camZ;
+      const floor = e.bottom * f + 0.55;
+      const left = e.left * f, right = e.right * f;
+      // Bounce off the sides of the screen and the floor.
+      if (r.g.position.x < left + R && r.v.x < 0) { r.v.x *= -0.6; r.w.multiplyScalar(0.8); }
+      if (r.g.position.x > right - R && r.v.x > 0) { r.v.x *= -0.6; r.w.multiplyScalar(0.8); }
+      if (r.g.position.y < floor + R) {
+        r.g.position.y = floor + R;
+        if (r.v.y < 0) {
+          if (r.v.y < -3) sound.thud?.();
+          r.v.y *= -0.42;
+          r.v.x *= 0.7;
+          r.v.z *= 0.7;
+          r.w.multiplyScalar(0.6);
+          r.w.x += (Math.random() - 0.5) * 4; // floppy: each bounce knocks it a new way
+          r.w.z += (Math.random() - 0.5) * 4;
+        }
+        r.v.x *= Math.exp(-dt * 2); // rolling friction once it's down
+        r.w.multiplyScalar(Math.exp(-dt * 2.5));
+      }
+      r.g.rotation.x += r.w.x * dt;
+      r.g.rotation.y += r.w.y * dt;
+      r.g.rotation.z += r.w.z * dt;
+      // After a while it shrinks away.
+      const age = now - r.born;
+      if (age > RAG_LIFE) {
+        const k = Math.min(1, (age - RAG_LIFE) / 500);
+        r.g.scale.setScalar(r.size * (1 - k));
+        if (k >= 1) { scene.remove(r.g); rags.splice(i, 1); }
+      }
+    }
+  }
+
   // Blow a cube into its 26 cubies (handed to the physics), then drop a fresh
   // copy of it back in from the top.
   // respawn = false leaves it gone (used by the nuke).
@@ -292,6 +365,7 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
       return { x, y, dx: x - cx, dy: y - cy, size: 0.99 * sc.x * pxPerUnit, quat: cb.getWorldQuaternion(q).clone(), faces };
     });
     onShatter(pieces, { byZoom: respawn });
+    ragdollCore(c);
 
     t.group.visible = false;
     c.setSpread(0);
@@ -357,6 +431,7 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
     const now = performance.now();
 
     settleDrag(mainDrag, dt, now, dragging === mainDrag);
+    stepRags(dt, now);
     if (word) for (const sl of word.slots) if (sl) settleDrag(sl.drag, dt, now, dragging === sl.drag);
 
     updateProjection(); // the stage can move or change size (layout transitions)
@@ -396,7 +471,6 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
         c.setSpread(c.spread);
         c.appliedSpread = c.spread;
       }
-      c.rattleCore?.(); // the core shakes around inside while it's zoomed apart
       const base = tg.slot && !tg.slot.main ? 1 : fx.scale * (fx.squash ?? 1);
       tg.group.scale.setScalar(base * (1 + c.spread));
       const k = Math.max(0, (c.spread - 0.8) / (EXPLODE_AT - 0.8));
