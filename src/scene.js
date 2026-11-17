@@ -271,8 +271,11 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
   // A fresh core takes the old one's place and goes flying: tumbling under
   // gravity, bouncing off the floor and the sides of the screen until it
   // settles, then shrinking away after a while. It starts out as stretched as
-  // it was when the cube burst, and its axles spring back to their normal
-  // length as it falls.
+  // it was when the cube burst, and its axles pull back to their normal length
+  // as it falls.
+  // Grab one and you hold it by a handle (the axle end nearest the pointer):
+  // it hangs from that on a spring, the axle stretching as it's pulled, and
+  // swings and pivots around it as you move it.
   const rags = [];
   const rv = new THREE.Vector3(), rq = new THREE.Quaternion(), rs = new THREE.Vector3();
   function ragdollCore(c) {
@@ -280,7 +283,7 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
     c.core.getWorldPosition(rv);
     c.core.getWorldQuaternion(rq);
     c.core.getWorldScale(rs);
-    const { group, setReach } = buildCore();
+    const { group, setReach, setArm, dirs } = buildCore();
     const reach0 = (CORE_REST_REACH + 0.5) * (1 + c.spread) - 0.5; // as stretched as it was
     setReach(reach0);
     castShadows(group);
@@ -290,17 +293,45 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
     if (size < 0.15) return; // the cube was barely there (still growing in)
     group.scale.setScalar(size);
     scene.add(group);
-    sound.boing?.(); // the axles springing back
     const side = Math.random() < 0.5 ? -1 : 1;
     rags.push({
-      g: group, size, born: performance.now(), t0: performance.now(), setReach, reach0, reach: reach0, held: false,
+      g: group, size, born: performance.now(), t0: performance.now(), setReach, setArm, dirs, reach0, reach: reach0, held: false,
       v: new THREE.Vector3(side * (1.5 + Math.random() * 3), 6 + Math.random() * 4, (Math.random() - 0.3) * 1.2),
       w: new THREE.Vector3((Math.random() - 0.5) * 16, (Math.random() - 0.5) * 16, (Math.random() - 0.5) * 16),
     });
   }
   const RAG_LIFE = 12000; // long enough to grab and play with
 
-  // Cores can be grabbed and dragged around, and thrown when let go.
+  // Hanging from the pointer by one handle: the middle of the core is a weight
+  // on a spring (that handle's axle), so it stretches, bobs and swings around
+  // the grip as you move, and the core turns to keep that axle pointing at it.
+  const tmpD = new THREE.Vector3(), tmpF = new THREE.Vector3();
+  function holdRag(r, dt) {
+    const grip = ragDrag.grip;
+    const rest = CORE_REST_REACH * r.size;
+    const steps = 3, h = dt / steps;
+    for (let k = 0; k < steps; k++) {
+      tmpD.copy(r.g.position).sub(grip);
+      const len = Math.max(0.001, tmpD.length());
+      tmpD.divideScalar(len);
+      tmpF.copy(tmpD).multiplyScalar(-90 * (len - rest)); // the spring
+      tmpF.addScaledVector(r.v, -3.5); // damping
+      tmpF.y -= 30; // gravity
+      r.v.addScaledVector(tmpF, h);
+      r.v.z = 0;
+      r.g.position.addScaledVector(r.v, h);
+      r.g.position.z = grip.z;
+    }
+    tmpD.copy(grip).sub(r.g.position);
+    const len = Math.max(0.001, tmpD.length());
+    // The held axle stretches out to reach the grip.
+    r.gripReach = Math.min(4, Math.max(CORE_REST_REACH, len / r.size));
+    r.setArm(r.gi, r.gripReach);
+    // Point that axle at the grip (the core pivots around it).
+    r.g.quaternion.setFromUnitVectors(r.dirs[r.gi], tmpD.divideScalar(len));
+  }
+
+  // Cores can be grabbed (by a handle) and dragged around, and thrown when let go.
   let ragDrag = null;
   const dragPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
   const pointAt = (x, y, z) => {
@@ -321,9 +352,23 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
     if (!p) return;
     e.stopImmediatePropagation(); // (the debris and party listeners don't get this press)
     e.preventDefault();
+    // Take hold of the handle (axle end) nearest to where it was clicked.
+    r.reach = CORE_REST_REACH;
+    r.setReach(CORE_REST_REACH);
+    r.armBack = null;
+    r.g.updateMatrixWorld(true);
+    let gi = 0, best = Infinity;
+    r.dirs.forEach((d, i) => {
+      const end = d.clone().multiplyScalar(CORE_REST_REACH).applyMatrix4(r.g.matrixWorld);
+      const dist = end.distanceTo(hit.point);
+      if (dist < best) { best = dist; gi = i; }
+    });
+    r.gi = gi;
     r.held = true;
+    r.v.set(0, 0, 0);
+    r.w.set(0, 0, 0);
     r.born = performance.now(); // a fresh lease on life
-    ragDrag = { r, id: e.pointerId, off: r.g.position.clone().sub(p), last: p.clone(), lt: performance.now(), vel: new THREE.Vector3() };
+    ragDrag = { r, id: e.pointerId, grip: p.clone(), last: p.clone(), lt: performance.now(), vel: new THREE.Vector3() };
     document.body.classList.add('grabbing');
   }, { capture: true });
   window.addEventListener('pointermove', (e) => {
@@ -335,17 +380,18 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
     ragDrag.vel.copy(p).sub(ragDrag.last).divideScalar(dt);
     ragDrag.last.copy(p);
     ragDrag.lt = now;
-    ragDrag.r.g.position.copy(p).add(ragDrag.off);
+    ragDrag.grip.copy(p);
   }, { capture: true });
   const dropRag = (e) => {
     if (!ragDrag || e.pointerId !== ragDrag.id) return;
     const { r, vel, lt } = ragDrag;
-    // Thrown with the pointer's speed (or just dropped if it wasn't moving).
-    if (performance.now() - lt < 80) r.v.copy(vel).clampLength(0, 28);
-    else r.v.set(0, 0, 0);
+    // Flies off with its swing, plus the pointer's speed if it was moving.
+    if (performance.now() - lt < 80) r.v.addScaledVector(vel, 0.6);
+    r.v.clampLength(0, 28);
     r.v.z = 0;
     r.w.set(r.v.y * 0.6 + (Math.random() - 0.5) * 3, (Math.random() - 0.5) * 3, -r.v.x * 0.9);
     r.held = false;
+    r.armBack = { i: r.gi, from: r.gripReach || CORE_REST_REACH, t0: performance.now() };
     ragDrag = null;
     swallowRagClick = performance.now();
     document.body.classList.remove('grabbing');
@@ -363,18 +409,22 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
     for (let i = rags.length - 1; i >= 0; i--) {
       const r = rags[i];
       const age = now - r.born;
-      // The axles spring back to normal like springs: boinging in and out a few
-      // times, less each time. (Squashing in, they stop short of the hub.)
-      if (r.reach !== CORE_REST_REACH) {
-        const ts = (now - r.t0) / 1000;
-        let k = Math.exp(-3 * ts) * Math.cos(Math.PI * 2 * 2.2 * ts);
-        if (k < 0) k *= 0.12;
-        r.reach = CORE_REST_REACH + (r.reach0 - CORE_REST_REACH) * k;
-        if (ts > 2) r.reach = CORE_REST_REACH;
+      // The axles pull back to normal as it falls (smoothly).
+      if (r.reach !== CORE_REST_REACH && !r.held) {
+        const p = Math.min(1, (now - r.t0) / 900);
+        r.reach = CORE_REST_REACH + (r.reach0 - CORE_REST_REACH) * (1 - p) ** 2;
+        if (p >= 1) r.reach = CORE_REST_REACH;
         r.setReach(r.reach);
       }
-      // Held by the pointer: it goes where it's dragged.
-      if (r.held) { r.born = now; continue; }
+      // Let go of: the stretched handle springs back to normal.
+      if (r.armBack) {
+        const p = Math.min(1, (now - r.armBack.t0) / 450);
+        const k = Math.exp(-5 * p) * Math.cos(p * Math.PI * 3) * (1 - p);
+        r.setArm(r.armBack.i, Math.max(0.45, CORE_REST_REACH + (r.armBack.from - CORE_REST_REACH) * k));
+        if (p >= 1) { r.setArm(r.armBack.i, CORE_REST_REACH); r.armBack = null; }
+      }
+      // Held by a handle: it hangs from the pointer on a spring.
+      if (r.held) { holdRag(r, dt); r.born = now; continue; }
       const R = Math.max(0.62, r.reach * 0.8) * r.size; // roughly how far it reaches
       r.v.y -= 30 * dt;
       r.g.position.addScaledVector(r.v, dt);

@@ -162,42 +162,35 @@ function snap(c, scale = 1) {
 const coreMat = new THREE.MeshLambertMaterial({ color: 0x6a6a6a, flatShading: true });
 const capMat = new THREE.MeshLambertMaterial({ color: 0xa8a8a8, flatShading: true });
 const hubGeo = new THREE.IcosahedronGeometry(0.4, 1); // low-poly, like the rest
-const armGeo = new THREE.BoxGeometry(0.2, 0.2, 1);
+const halfArmGeo = new THREE.BoxGeometry(0.2, 0.2, 1).translate(0, 0, 0.5); // from the hub outward
 const capGeo = new THREE.CylinderGeometry(0.17, 0.17, 0.08, 8);
 
 // Build a core: { group, setReach(r) } where r is how far each axle reaches
 // from the middle (to a center piece's inner face).
+// Build a core: { group, dirs, setReach(r), setArm(i, r) }. Six half-axles
+// run from the hub out along dirs[i]; r is how far one reaches from the middle
+// (to a center piece's inner face). setReach sets all six, setArm just one.
 export function buildCore() {
   const group = new THREE.Group();
   group.add(new THREE.Mesh(hubGeo, coreMat));
-  const arms = [];
-  for (const axis of ['x', 'y', 'z']) {
-    const arm = new THREE.Mesh(armGeo, coreMat);
-    if (axis === 'x') arm.rotation.y = Math.PI / 2;
-    if (axis === 'y') arm.rotation.x = Math.PI / 2;
-    const caps = [-1, 1].map((sgn) => {
-      const cap = new THREE.Mesh(capGeo, capMat);
-      if (axis === 'x') cap.rotation.z = Math.PI / 2;
-      if (axis === 'z') cap.rotation.x = Math.PI / 2;
-      cap.userData = { axis, sgn };
-      group.add(cap);
-      return cap;
-    });
-    group.add(arm);
-    arms.push({ arm, caps });
-  }
-  const setReach = (reach) => {
-    for (const { arm, caps } of arms) {
-      arm.scale.z = reach * 2;
-      for (const cap of caps) {
-        const { axis, sgn } = cap.userData;
-        cap.position.set(0, 0, 0);
-        cap.position[axis] = sgn * (reach - 0.04);
-      }
-    }
+  const dirs = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].map((d) => new THREE.Vector3(...d));
+  const zAxis = new THREE.Vector3(0, 0, 1), yAxis = new THREE.Vector3(0, 1, 0);
+  const arms = dirs.map((d) => {
+    const arm = new THREE.Mesh(halfArmGeo, coreMat);
+    arm.quaternion.setFromUnitVectors(zAxis, d);
+    const cap = new THREE.Mesh(capGeo, capMat);
+    cap.quaternion.setFromUnitVectors(yAxis, d);
+    group.add(arm, cap);
+    return { arm, cap, d };
+  });
+  const setArm = (i, reach) => {
+    const { arm, cap, d } = arms[i];
+    arm.scale.z = reach;
+    cap.position.copy(d).multiplyScalar(reach - 0.04);
   };
+  const setReach = (reach) => { for (let i = 0; i < 6; i++) setArm(i, reach); };
   setReach(SP - 0.5);
-  return { group, setReach };
+  return { group, dirs, setReach, setArm };
 }
 export const CORE_REST_REACH = SP - 0.5;
 
