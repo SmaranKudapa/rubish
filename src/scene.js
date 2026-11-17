@@ -393,6 +393,7 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
         c.setSpread(c.spread);
         c.appliedSpread = c.spread;
       }
+      c.rattleCore?.(); // the core shakes around inside while it's zoomed apart
       const base = tg.slot && !tg.slot.main ? 1 : fx.scale * (fx.squash ?? 1);
       tg.group.scale.setScalar(base * (1 + c.spread));
       const k = Math.max(0, (c.spread - 0.8) / (EXPLODE_AT - 0.8));

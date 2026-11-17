@@ -157,6 +157,14 @@ function snap(c, scale = 1) {
   c.scale.setScalar(scale);
 }
 
+// The core: the hidden mechanism in the middle of a real cube, a hub with six
+// axles out to the center pieces (screw caps on the ends). Shared geometry.
+const coreMat = new THREE.MeshLambertMaterial({ color: 0x6a6a6a, flatShading: true });
+const capMat = new THREE.MeshLambertMaterial({ color: 0xa8a8a8, flatShading: true });
+const hubGeo = new THREE.IcosahedronGeometry(0.4, 1); // low-poly, like the rest
+const armGeo = new THREE.BoxGeometry(0.2, 0.2, 1);
+const capGeo = new THREE.CylinderGeometry(0.17, 0.17, 0.08, 8);
+
 export class RubiksCube {
   constructor() {
     this.group = new THREE.Group();
@@ -192,6 +200,37 @@ export class RubiksCube {
       this.group.add(c);
       this.cubies.push(c);
     }
+    // The core, only seen when the cube is zoomed apart.
+    this.core = new THREE.Group();
+    this.coreArms = [];
+    this.core.add(new THREE.Mesh(hubGeo, coreMat));
+    for (const axis of ['x', 'y', 'z']) {
+      const arm = new THREE.Mesh(armGeo, coreMat);
+      if (axis === 'x') arm.rotation.y = Math.PI / 2;
+      if (axis === 'y') arm.rotation.x = Math.PI / 2;
+      const caps = [-1, 1].map((sgn) => {
+        const cap = new THREE.Mesh(capGeo, capMat);
+        if (axis === 'x') cap.rotation.z = Math.PI / 2;
+        if (axis === 'z') cap.rotation.x = Math.PI / 2;
+        cap.userData = { axis, sgn };
+        this.core.add(cap);
+        return cap;
+      });
+      this.core.add(arm);
+      this.coreArms.push({ arm, caps });
+    }
+    this.core.visible = false;
+    this.group.add(this.core);
+  }
+
+  // The core rattles around inside while the cube is zoomed apart, harder the
+  // further apart it is. Called every frame by the stage.
+  rattleCore() {
+    if (!this.core.visible) return;
+    const a = Math.min(1, this.spread / 1.2);
+    const j = (m) => (Math.random() - 0.5) * m * a;
+    this.core.position.set(j(0.16), j(0.16), j(0.16));
+    this.core.rotation.set(j(0.35), j(0.35), j(0.35));
   }
 
   // Exploded view: the stage scales the whole group by (1 + k) and each cubie
@@ -200,6 +239,19 @@ export class RubiksCube {
     this.spread = k;
     const s = 1 / (1 + k);
     for (const c of this.cubies) c.scale.setScalar(s);
+    // The core keeps its size too, and its axles stretch out to keep reaching
+    // the center pieces as they move away.
+    this.core.visible = k > 0.01;
+    this.core.scale.setScalar(s);
+    const reach = SP * (1 + k) - 0.5; // from the middle to a center piece's inner face
+    for (const { arm, caps } of this.coreArms) {
+      arm.scale.z = reach * 2;
+      for (const cap of caps) {
+        const { axis, sgn } = cap.userData;
+        cap.position.set(0, 0, 0);
+        cap.position[axis] = sgn * (reach - 0.04);
+      }
+    }
   }
 
   // Queue a move. duration 0 = instant. record=false keeps it out of history.

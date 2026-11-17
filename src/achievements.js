@@ -137,8 +137,8 @@ export function iconURL(name) {
 
 export const ACHIEVEMENTS = [
   { id: 'first-word', icon: 'trophy', title: 'FIRST WORD', desc: 'Spell out your first word.' },
-  { id: 'kaboom', icon: 'boom', title: 'ZOOM BOOM', desc: 'Zoom into a cube until it bursts apart.', secret: true },
-  { id: 'copycat', icon: 'twins', title: 'CLONE', desc: 'Click a flying cube to clone it.', secret: true },
+  { id: 'kaboom', icon: 'boom', title: 'ZOOM BOOM', desc: 'Zoom into a cube until it bursts apart.' },
+  { id: 'copycat', icon: 'twins', title: 'CLONE', desc: 'Click a flying cube to clone it.' },
   { id: 'nuke', icon: 'nuke', title: 'NUKE', desc: 'Send in a nuke by typing nuke.', secret: true },
   { id: 'non-cuber', icon: 'dizzy', title: 'NON CUBER', desc: 'ZOOM BOOM a cube 5 times in a row while learning a letter.', secret: true },
   { id: 'silencer', icon: 'muted', title: 'SILENCER', desc: 'Type MUTE to mute audio instead of clicking the button.', secret: true },
