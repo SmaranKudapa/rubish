@@ -3,7 +3,7 @@
 // into place and the earlier letters drop in beside it. Every cube can be
 // dragged around on its own.
 import * as THREE from 'three';
-import { easeInOutCubic, easeOutBack, buildCore } from './cube3d.js';
+import { easeInOutCubic, easeOutBack, buildCore, CORE_REST_REACH } from './cube3d.js';
 
 const SPACING = 4.4; // distance between cubes in the finale
 const SLOT_TILT = [0.3, -0.32]; // x/y tilt of each cube in the finale
@@ -268,9 +268,11 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
   container.addEventListener('pointercancel', liftTouch);
 
   // ---------- The core, ragdolling out of a cube that burst ----------
-  // A fresh core (axles back to normal length) takes the old one's place and
-  // goes flying: tumbling under gravity, bouncing off the floor and the sides
-  // of the screen until it settles, then shrinking away after a while.
+  // A fresh core takes the old one's place and goes flying: tumbling under
+  // gravity, bouncing off the floor and the sides of the screen until it
+  // settles, then shrinking away after a while. It starts out as stretched as
+  // it was when the cube burst, and its axles spring back to their normal
+  // length as it falls.
   const rags = [];
   const rv = new THREE.Vector3(), rq = new THREE.Quaternion(), rs = new THREE.Vector3();
   function ragdollCore(c) {
@@ -278,7 +280,9 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
     c.core.getWorldPosition(rv);
     c.core.getWorldQuaternion(rq);
     c.core.getWorldScale(rs);
-    const { group } = buildCore();
+    const { group, setReach } = buildCore();
+    const reach0 = (CORE_REST_REACH + 0.5) * (1 + c.spread) - 0.5; // as stretched as it was
+    setReach(reach0);
     castShadows(group);
     group.position.copy(rv);
     group.quaternion.copy(rq);
@@ -288,7 +292,7 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
     scene.add(group);
     const side = Math.random() < 0.5 ? -1 : 1;
     rags.push({
-      g: group, size, born: performance.now(),
+      g: group, size, born: performance.now(), setReach, reach0, reach: reach0,
       v: new THREE.Vector3(side * (1.5 + Math.random() * 3), 6 + Math.random() * 4, (Math.random() - 0.3) * 1.2),
       w: new THREE.Vector3((Math.random() - 0.5) * 16, (Math.random() - 0.5) * 16, (Math.random() - 0.5) * 16),
     });
@@ -299,7 +303,17 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
     const e = screenEdges(camZ);
     for (let i = rags.length - 1; i >= 0; i--) {
       const r = rags[i];
-      const R = 0.62 * r.size; // roughly how far it reaches
+      const age = now - r.born;
+      // The axles pull back to normal over the fall, with a little rubbery
+      // overshoot at the end.
+      const p = Math.min(1, age / 900);
+      if (r.reach !== CORE_REST_REACH) {
+        const k = p >= 1 ? 0 : (1 - p) ** 2 - 0.1 * Math.sin(Math.PI * p) * p * p;
+        r.reach = CORE_REST_REACH + (r.reach0 - CORE_REST_REACH) * Math.max(k, -0.06); // (a small undershoot, never inside the hub)
+        if (p >= 1) r.reach = CORE_REST_REACH;
+        r.setReach(r.reach);
+      }
+      const R = Math.max(0.62, r.reach * 0.8) * r.size; // roughly how far it reaches
       r.v.y -= 30 * dt;
       r.g.position.addScaledVector(r.v, dt);
       // Stay near the cubes' depth (in front of the wall behind them).
@@ -331,7 +345,6 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
       r.g.rotation.y += r.w.y * dt;
       r.g.rotation.z += r.w.z * dt;
       // After a while it shrinks away.
-      const age = now - r.born;
       if (age > RAG_LIFE) {
         const k = Math.min(1, (age - RAG_LIFE) / 500);
         r.g.scale.setScalar(r.size * (1 - k));
