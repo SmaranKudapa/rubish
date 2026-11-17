@@ -302,6 +302,48 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
   }
   const RAG_LIFE = 12000; // long enough to grab and play with
 
+  // Cores can't pass through a cube: each whole cube on stage is a solid box
+  // (turned the way the cube is). A core inside one is pushed back out to its
+  // surface and bounces off.
+  const cLocal = new THREE.Vector3(), cClosest = new THREE.Vector3(), cN = new THREE.Vector3();
+  function collideCubes(r) {
+    const R = 0.55 * r.size; // the hub plus a bit of axle
+    for (const tg of allTargets()) {
+      if (!tg.group.visible || tg.cube.exploding) continue;
+      const g = tg.group;
+      cLocal.copy(r.g.position);
+      g.worldToLocal(cLocal);
+      cClosest.set(
+        THREE.MathUtils.clamp(cLocal.x, -CUBE_HALF, CUBE_HALF),
+        THREE.MathUtils.clamp(cLocal.y, -CUBE_HALF, CUBE_HALF),
+        THREE.MathUtils.clamp(cLocal.z, -CUBE_HALF, CUBE_HALF),
+      );
+      const inside = cClosest.equals(cLocal);
+      if (inside) {
+        // Its middle got inside: push out through the nearest face.
+        const ax = Math.abs(cLocal.x), ay = Math.abs(cLocal.y), az = Math.abs(cLocal.z);
+        if (ax >= ay && ax >= az) cClosest.x = Math.sign(cLocal.x || 1) * CUBE_HALF;
+        else if (ay >= az) cClosest.y = Math.sign(cLocal.y || 1) * CUBE_HALF;
+        else cClosest.z = Math.sign(cLocal.z || 1) * CUBE_HALF;
+      }
+      g.localToWorld(cClosest);
+      cN.copy(r.g.position).sub(cClosest);
+      let dist = cN.length();
+      if (!inside && dist >= R) continue;
+      if (inside) { cN.negate(); dist = cN.length(); }
+      if (dist < 1e-5) cN.set(0, 1, 0); else cN.divideScalar(dist);
+      r.g.position.copy(cClosest).addScaledVector(cN, R);
+      const vn = r.v.dot(cN);
+      if (vn < 0) {
+        r.v.addScaledVector(cN, -1.45 * vn); // bounce off (losing some speed)
+        r.v.multiplyScalar(0.85);
+        if (vn < -4 && !r.held) sound.thud?.();
+        r.w.x += (Math.random() - 0.5) * 3;
+        r.w.z += (Math.random() - 0.5) * 3;
+      }
+    }
+  }
+
   // Hanging from the pointer by one handle: the middle of the core is a weight
   // on a spring (that handle's axle), so it stretches, bobs and swings around
   // the grip as you move, and the core turns to keep that axle pointing at it.
@@ -424,7 +466,7 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
         if (p >= 1) { r.setArm(r.armBack.i, CORE_REST_REACH); r.armBack = null; }
       }
       // Held by a handle: it hangs from the pointer on a spring.
-      if (r.held) { holdRag(r, dt); r.born = now; continue; }
+      if (r.held) { holdRag(r, dt); collideCubes(r); r.born = now; continue; }
       const R = Math.max(0.62, r.reach * 0.8) * r.size; // roughly how far it reaches
       r.v.y -= 30 * dt;
       r.g.position.addScaledVector(r.v, dt);
@@ -453,6 +495,7 @@ export function createStage(container, cube, { onShatter = () => {}, sound = {} 
         r.v.x *= Math.exp(-dt * 2); // rolling friction once it's down
         r.w.multiplyScalar(Math.exp(-dt * 2.5));
       }
+      collideCubes(r);
       r.g.rotation.x += r.w.x * dt;
       r.g.rotation.y += r.w.y * dt;
       r.g.rotation.z += r.w.z * dt;
