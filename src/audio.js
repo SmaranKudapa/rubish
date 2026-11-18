@@ -337,3 +337,118 @@ export function setMuted(m) {
   try { localStorage.setItem('rubish-muted', m ? '1' : '0'); } catch { /* storage blocked */ }
   if (master) master.gain.setTargetAtTime(m ? 0 : 0.45, ctx.currentTime, 0.02);
 }
+
+// ---------- Background music ----------
+// An original, slow ambient loop ("Greenhouse"): a warm pad, a soft bass, a
+// kalimba-like arpeggio that grows a little differently each pass, and the
+// odd high sparkle, all through a gentle echo. Synthesized live, so there is
+// no audio file; it plays through `master`, so the mute button silences it.
+
+const BPM = 72;
+const BEAT = 60 / BPM;
+// Two-bar chords (MIDI notes): root for the bass, then the voicing.
+const CHORDS = [
+  [50, [62, 66, 69, 73]], // Dmaj7
+  [47, [59, 62, 66, 69]], // Bm7
+  [43, [59, 62, 66, 69]], // Gmaj7 (Bm/G)
+  [45, [57, 62, 64, 69]], // Asus
+  [50, [62, 66, 69, 76]], // Dadd9
+  [52, [59, 64, 67, 71]], // Em7
+  [43, [62, 67, 71, 74]], // G
+  [45, [61, 64, 69, 73]], // A
+];
+let music = null;
+
+function buildMusicBus() {
+  const bus = ctx.createGain();
+  bus.gain.value = 0.0001;
+  const echo = ctx.createDelay(2);
+  echo.delayTime.value = BEAT * 0.75;
+  const fb = ctx.createGain();
+  fb.gain.value = 0.38;
+  const tone = ctx.createBiquadFilter();
+  tone.type = 'lowpass';
+  tone.frequency.value = 2200;
+  const wet = ctx.createGain();
+  wet.gain.value = 0.35;
+  bus.connect(master);
+  bus.connect(echo);
+  echo.connect(tone).connect(fb).connect(echo);
+  tone.connect(wet).connect(master);
+  return bus;
+}
+
+function voice(bus, { type = 'sine', freq, t, dur, vol, attack = 0.01, release, detune = 0, filter }) {
+  const o = ctx.createOscillator();
+  o.type = type;
+  o.frequency.value = freq;
+  o.detune.value = detune;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(vol, t + attack);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur + (release ?? 0));
+  let out = o;
+  if (filter) {
+    const f = ctx.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.value = filter;
+    out = o.connect(f);
+  }
+  out.connect(g).connect(bus);
+  o.start(t);
+  o.stop(t + dur + (release ?? 0) + 0.05);
+}
+
+// A kalimba-ish pluck: a sine with a quick, bright overtone.
+function pluck(bus, n, t, vol) {
+  voice(bus, { freq: NOTE(n), t, dur: 1.6, vol, attack: 0.005 });
+  voice(bus, { freq: NOTE(n) * 4.02, t, dur: 0.18, vol: vol * 0.25, attack: 0.002 });
+}
+
+function scheduleBar(bus, bar, t) {
+  const [root, chord] = CHORDS[Math.floor(bar / 2) % CHORDS.length];
+  const first = bar % 2 === 0;
+  if (first) {
+    // Pad: two detuned soft triangles per note, swelling over the two bars.
+    for (const n of chord) {
+      for (const d of [-7, 7]) voice(bus, { type: 'triangle', freq: NOTE(n), t, dur: BEAT * 8, vol: 0.012, attack: BEAT * 3, release: BEAT * 2, detune: d, filter: 900 });
+    }
+    voice(bus, { freq: NOTE(root - 12), t, dur: BEAT * 3.5, vol: 0.09, attack: 0.08, release: 0.6 });
+  } else {
+    voice(bus, { freq: NOTE(root - 12 + (Math.random() < 0.5 ? 7 : 12)), t: t + BEAT * 2, dur: BEAT * 1.5, vol: 0.06, attack: 0.06, release: 0.4 });
+  }
+  // Arpeggio on eighth notes, with rests that shift every pass so it never
+  // quite repeats.
+  const tones = [...chord, chord[1] + 12, chord[2] + 12];
+  const pass = Math.floor(bar / (CHORDS.length * 2));
+  for (let i = 0; i < 8; i++) {
+    const rest = Math.random() < (i % 2 ? 0.45 : 0.15) - Math.min(0.1, pass * 0.03);
+    if (rest) continue;
+    const n = tones[(i * 3 + bar + (Math.random() < 0.3 ? 2 : 0)) % tones.length];
+    const swing = i % 2 ? BEAT * 0.06 : 0;
+    pluck(bus, n, t + i * BEAT / 2 + swing, i % 4 === 0 ? 0.05 : 0.032);
+  }
+  // Now and then a high sparkle, like a dewdrop.
+  if (Math.random() < 0.35) pluck(bus, chord[Math.floor(Math.random() * 4)] + 24, t + BEAT * (1 + Math.floor(Math.random() * 3)) + BEAT / 2, 0.018);
+}
+
+export function startMusic() {
+  if (music || !ensure()) return;
+  const bus = buildMusicBus();
+  const barLen = BEAT * 4;
+  let bar = 0;
+  let next = ctx.currentTime + 0.2;
+  const tick = () => {
+    if (ctx.state !== 'running') { next = Math.max(next, ctx.currentTime + 0.2); return; }
+    while (next < ctx.currentTime + 1.5) {
+      scheduleBar(bus, bar++, next);
+      next += barLen;
+    }
+  };
+  bus.gain.exponentialRampToValueAtTime(0.55, ctx.currentTime + 6); // fade in
+  music = { bus, timer: setInterval(tick, 250) };
+  tick();
+}
+
+// Start the music as soon as the browser allows sound.
+waitForAudio().then(startMusic);
