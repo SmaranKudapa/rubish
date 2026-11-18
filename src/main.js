@@ -136,6 +136,7 @@ const birthday = createParty({ stage, physics, sound: sfx });
 async function sing() {
   if (mode === 'nuke') return;
   singing = true;
+  stopMusic(0.3); // let Happy Birthday play on its own
   birthday.light();
   const swatchFor = (n) => {
     const i = NOTES_TOP.indexOf(n);
@@ -152,6 +153,7 @@ async function sing() {
     await new Promise((r) => setTimeout(r, ms));
   }
   singing = false;
+  if (mode !== 'nuke') startMusic(); // the song is over: the music fades back in
 }
 
 function swatchRow(el, notes, onPick) {
