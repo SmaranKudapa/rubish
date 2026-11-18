@@ -339,114 +339,150 @@ export function setMuted(m) {
 }
 
 // ---------- Background music ----------
-// An original, slow ambient loop ("Greenhouse"): a warm pad, a soft bass, a
-// kalimba-like arpeggio that grows a little differently each pass, and the
-// odd high sparkle, all through a gentle echo. Synthesized live, so there is
-// no audio file; it plays through `master`, so the mute button silences it.
+// An original, wistful chiptune loop played on NES-style channels: a soft
+// pulse-wave lead with a little vibrato, a thin pulse arpeggio, a triangle
+// bass and a quiet noise hi-hat, with a touch of echo. Synthesized live (no
+// audio file) and routed through `master`, so the mute button silences it.
 
-const BPM = 72;
-const BEAT = 60 / BPM;
-// Two-bar chords (MIDI notes): root for the bass, then the voicing.
-const CHORDS = [
-  [50, [62, 66, 69, 73]], // Dmaj7
-  [47, [59, 62, 66, 69]], // Bm7
-  [43, [59, 62, 66, 69]], // Gmaj7 (Bm/G)
-  [45, [57, 62, 64, 69]], // Asus
-  [50, [62, 66, 69, 76]], // Dadd9
-  [52, [59, 64, 67, 71]], // Em7
-  [43, [62, 67, 71, 74]], // G
-  [45, [61, 64, 69, 73]], // A
-];
+const BPM = 96;
+const STEP = 60 / BPM / 2; // one eighth note
+const H = '-'; // hold the previous note
+// Chord name → [bass root, arpeggio triad] (MIDI).
+const CH = {
+  Am: [45, [69, 72, 76]], F: [41, [65, 69, 72]], C: [48, [67, 72, 76]], G: [43, [67, 71, 74]],
+  E: [40, [68, 71, 76]], Dm: [38, [65, 69, 74]], Em: [40, [67, 71, 76]],
+};
+// Each section: a chord per bar, and the lead melody in eighth notes.
+const SECTIONS = {
+  A: {
+    chords: ['Am', 'F', 'C', 'G', 'Am', 'F', 'C', 'E'],
+    lead: [
+      76, H, 81, H, 83, 84, 83, 81, 84, H, H, H, 81, H, 79, H,
+      79, H, 76, H, 79, 81, 79, 76, 74, H, H, H, H, H, null, null,
+      76, H, 81, H, 83, 84, 86, 84, 81, H, H, H, 84, H, 81, H,
+      79, H, 76, 79, H, H, 74, H, 83, H, 80, H, 76, H, H, null,
+    ],
+  },
+  B: {
+    chords: ['F', 'G', 'Em', 'Am', 'Dm', 'Em', 'F', 'E'],
+    lead: [
+      81, H, 84, H, 89, H, 88, H, 86, H, 83, H, 79, H, H, H,
+      79, H, 83, H, 88, H, 86, 83, 84, H, H, H, H, H, null, null,
+      77, H, 81, H, 86, H, 84, 81, 79, H, 83, H, 88, H, 86, H,
+      84, H, 81, H, 77, H, 81, H, 80, H, H, H, 83, H, H, H,
+    ],
+  },
+};
+// Intro (chords only), then the tune; the second A drops the lead an octave.
+const ORDER = [['A', null], ['A', 0], ['B', 0], ['A', -12], ['B', 0]];
+const LOOP_FROM = 1;
 let music = null;
+const waves = {};
+
+// A pulse wave with the given duty cycle (12.5%, 25%: the classic NES timbres).
+function pulseWave(duty) {
+  if (waves[duty]) return waves[duty];
+  const N = 64;
+  const re = new Float32Array(N);
+  const im = new Float32Array(N);
+  for (let n = 1; n < N; n++) re[n] = (2 / (n * Math.PI)) * Math.sin(n * Math.PI * duty);
+  return (waves[duty] = ctx.createPeriodicWave(re, im));
+}
 
 function buildMusicBus() {
   const bus = ctx.createGain();
   bus.gain.value = 0.0001;
-  const echo = ctx.createDelay(2);
-  echo.delayTime.value = BEAT * 0.75;
+  const echo = ctx.createDelay(1);
+  echo.delayTime.value = STEP * 3;
   const fb = ctx.createGain();
-  fb.gain.value = 0.38;
-  const tone = ctx.createBiquadFilter();
-  tone.type = 'lowpass';
-  tone.frequency.value = 2200;
+  fb.gain.value = 0.25;
   const wet = ctx.createGain();
-  wet.gain.value = 0.35;
+  wet.gain.value = 0.22;
   bus.connect(master);
   bus.connect(echo);
-  echo.connect(tone).connect(fb).connect(echo);
-  tone.connect(wet).connect(master);
+  echo.connect(fb).connect(echo);
+  echo.connect(wet).connect(master);
   return bus;
 }
 
-function voice(bus, { type = 'sine', freq, t, dur, vol, attack = 0.01, release, detune = 0, filter }) {
+function chip(bus, { duty, type, freq, t, dur, vol, vibrato = 0 }) {
   const o = ctx.createOscillator();
-  o.type = type;
+  if (duty) o.setPeriodicWave(pulseWave(duty));
+  else o.type = type;
   o.frequency.value = freq;
-  o.detune.value = detune;
+  if (vibrato) {
+    const lfo = ctx.createOscillator();
+    lfo.frequency.value = 5.5;
+    const depth = ctx.createGain();
+    depth.gain.setValueAtTime(0, t);
+    depth.gain.linearRampToValueAtTime(freq * vibrato, t + Math.min(dur, 0.6)); // vibrato eases in
+    lfo.connect(depth).connect(o.frequency);
+    lfo.start(t);
+    lfo.stop(t + dur + 0.1);
+  }
   const g = ctx.createGain();
   g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(vol, t + attack);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + dur + (release ?? 0));
-  let out = o;
-  if (filter) {
-    const f = ctx.createBiquadFilter();
-    f.type = 'lowpass';
-    f.frequency.value = filter;
-    out = o.connect(f);
-  }
-  out.connect(g).connect(bus);
+  g.gain.exponentialRampToValueAtTime(vol, t + 0.008);
+  g.gain.exponentialRampToValueAtTime(vol * 0.6, t + Math.min(dur, 0.25)); // gentle decay to a sustain
+  g.gain.setValueAtTime(vol * 0.6, t + Math.max(0.01, dur - 0.04));
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g).connect(bus);
   o.start(t);
-  o.stop(t + dur + (release ?? 0) + 0.05);
+  o.stop(t + dur + 0.05);
 }
 
-// A kalimba-ish pluck: a sine with a quick, bright overtone.
-function pluck(bus, n, t, vol) {
-  voice(bus, { freq: NOTE(n), t, dur: 1.6, vol, attack: 0.005 });
-  voice(bus, { freq: NOTE(n) * 4.02, t, dur: 0.18, vol: vol * 0.25, attack: 0.002 });
+function hat(bus, t, vol) {
+  const src = ctx.createBufferSource();
+  src.buffer = noiseBuf;
+  const f = ctx.createBiquadFilter();
+  f.type = 'highpass';
+  f.frequency.value = 7000;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(vol, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.04);
+  src.connect(f).connect(g).connect(bus);
+  src.start(t, Math.random() * 0.5);
+  src.stop(t + 0.06);
 }
 
-function scheduleBar(bus, bar, t) {
-  const [root, chord] = CHORDS[Math.floor(bar / 2) % CHORDS.length];
-  const first = bar % 2 === 0;
-  if (first) {
-    // Pad: two detuned soft triangles per note, swelling over the two bars.
-    for (const n of chord) {
-      for (const d of [-7, 7]) voice(bus, { type: 'triangle', freq: NOTE(n), t, dur: BEAT * 8, vol: 0.012, attack: BEAT * 3, release: BEAT * 2, detune: d, filter: 900 });
-    }
-    voice(bus, { freq: NOTE(root - 12), t, dur: BEAT * 3.5, vol: 0.09, attack: 0.08, release: 0.6 });
-  } else {
-    voice(bus, { freq: NOTE(root - 12 + (Math.random() < 0.5 ? 7 : 12)), t: t + BEAT * 2, dur: BEAT * 1.5, vol: 0.06, attack: 0.06, release: 0.4 });
+function scheduleBar(bus, [name, shift], barIdx, t) {
+  const sec = SECTIONS[name];
+  const [root, triad] = CH[sec.chords[barIdx]];
+  // Triangle bass: root, root, octave, root on quarter notes.
+  [0, 0, 12, 0].forEach((o, i) => chip(bus, { type: 'triangle', freq: NOTE(root + o), t: t + i * STEP * 2, dur: STEP * 1.8, vol: 0.13 }));
+  // Thin 12.5% pulse arpeggio rippling through the chord in sixteenths.
+  const arp = [0, 1, 2, 1];
+  for (let i = 0; i < 16; i++) chip(bus, { duty: 0.125, freq: NOTE(triad[arp[i % 4]]), t: t + i * STEP / 2, dur: STEP / 2 * 0.9, vol: 0.018 });
+  // Soft hi-hat on the offbeats once the tune is going.
+  if (shift !== null) for (let i = 1; i < 8; i += 2) hat(bus, t + i * STEP, 0.025);
+  // Lead melody (25% pulse), holding notes through the H marks.
+  if (shift === null) return;
+  const lead = sec.lead;
+  for (let i = barIdx * 8; i < barIdx * 8 + 8; i++) {
+    const n = lead[i];
+    if (n === null || n === H) continue;
+    let len = 1;
+    while (lead[i + len] === H) len++;
+    chip(bus, { duty: 0.25, freq: NOTE(n + shift), t: t + (i - barIdx * 8) * STEP, dur: len * STEP * 0.95, vol: 0.05, vibrato: len > 2 ? 0.012 : 0 });
   }
-  // Arpeggio on eighth notes, with rests that shift every pass so it never
-  // quite repeats.
-  const tones = [...chord, chord[1] + 12, chord[2] + 12];
-  const pass = Math.floor(bar / (CHORDS.length * 2));
-  for (let i = 0; i < 8; i++) {
-    const rest = Math.random() < (i % 2 ? 0.45 : 0.15) - Math.min(0.1, pass * 0.03);
-    if (rest) continue;
-    const n = tones[(i * 3 + bar + (Math.random() < 0.3 ? 2 : 0)) % tones.length];
-    const swing = i % 2 ? BEAT * 0.06 : 0;
-    pluck(bus, n, t + i * BEAT / 2 + swing, i % 4 === 0 ? 0.05 : 0.032);
-  }
-  // Now and then a high sparkle, like a dewdrop.
-  if (Math.random() < 0.35) pluck(bus, chord[Math.floor(Math.random() * 4)] + 24, t + BEAT * (1 + Math.floor(Math.random() * 3)) + BEAT / 2, 0.018);
 }
 
 export function startMusic() {
   if (music || !ensure()) return;
   const bus = buildMusicBus();
-  const barLen = BEAT * 4;
-  let bar = 0;
+  let part = 0;
+  let barIdx = 0;
   let next = ctx.currentTime + 0.2;
   const tick = () => {
     if (ctx.state !== 'running') { next = Math.max(next, ctx.currentTime + 0.2); return; }
-    while (next < ctx.currentTime + 1.5) {
-      scheduleBar(bus, bar++, next);
-      next += barLen;
+    while (next < ctx.currentTime + 1.2) {
+      scheduleBar(bus, ORDER[part], barIdx, next);
+      next += STEP * 8;
+      if (++barIdx >= 8) { barIdx = 0; if (++part >= ORDER.length) part = LOOP_FROM; }
     }
   };
-  bus.gain.exponentialRampToValueAtTime(0.55, ctx.currentTime + 6); // fade in
-  music = { bus, timer: setInterval(tick, 250) };
+  bus.gain.exponentialRampToValueAtTime(0.5, ctx.currentTime + 3); // fade in
+  music = { bus, timer: setInterval(tick, 200) };
   tick();
 }
 
