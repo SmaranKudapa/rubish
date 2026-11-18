@@ -7,7 +7,7 @@ import {
 import { createStage, tween } from './scene.js';
 import { buildTitle } from './title.js';
 import { createPhysics } from './physics3d.js';
-import { sfx, isMuted, setMuted, audioRunning, waitForAudio } from './audio.js';
+import { sfx, isMuted, setMuted, audioRunning, waitForAudio, startMusic, stopMusic } from './audio.js';
 import { createBackdrop } from './backdrop.js';
 import { installCursor, canHover } from './cursor.js';
 import { createAchievements, iconURL } from './achievements.js';
@@ -384,6 +384,7 @@ async function armSound(mute) {
 // ---------- NUKE (type NUKE and submit) ----------
 async function launchNuke() {
   mode = 'nuke';
+  stopMusic(); // silence for the nuke; the page reloads afterwards
   loopToken++; // stop the landing shuffle
   recolorToken++;
   // Lock NUKE into the word box: no more editing.
@@ -1101,6 +1102,7 @@ function finishOpening(instant = false) {
   for (const el of document.querySelectorAll('.pending')) el.classList.remove('pending');
   stage.fx.main = 1;
   if (mode === 'opening') mode = 'landing';
+  if (mode !== 'nuke') startMusic(); // everything is in place: cue the music
   input.focus({ preventScroll: true });
   // Let the page settle for 2 seconds before the cube starts shuffling letters.
   setTimeout(() => { if (mode === 'landing') restartLoop(); }, instant ? 0 : 2000);

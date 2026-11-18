@@ -467,7 +467,11 @@ function scheduleBar(bus, [name, shift], barIdx, t) {
   }
 }
 
+let musicWanted = false;
+// Starts the music (once the browser allows sound, if it doesn't yet).
 export function startMusic() {
+  musicWanted = true;
+  if (!audioRunning()) { waitForAudio().then(() => { if (musicWanted) startMusic(); }); return; }
   if (music || !ensure()) return;
   const bus = buildMusicBus();
   let part = 0;
@@ -486,5 +490,16 @@ export function startMusic() {
   tick();
 }
 
-// Start the music as soon as the browser allows sound.
-waitForAudio().then(startMusic);
+// Fades the music out and stops it.
+export function stopMusic(fade = 0.6) {
+  musicWanted = false;
+  if (!music) return;
+  const { bus, timer } = music;
+  music = null;
+  clearInterval(timer);
+  const t = ctx.currentTime;
+  bus.gain.cancelScheduledValues(t);
+  bus.gain.setValueAtTime(Math.max(0.0001, bus.gain.value), t);
+  bus.gain.exponentialRampToValueAtTime(0.0001, t + fade);
+  setTimeout(() => bus.disconnect(), (fade + 2) * 1000);
+}
